@@ -32,7 +32,13 @@ _fileref = re.compile(r"`[^`\n]*?([\w.\-/]+\.(?:js|jsx|ts|tsx|mjs|py))(?::\d+)?[
 _updated = re.compile(r"^updated:\s*(\S+)", re.M)
 _valid = re.compile(r"^valid_as_of:\s*(\S+)", re.M)
 _baseline = re.compile(r"^code_baseline:\s*\{([^}]*)\}", re.M)
-_kv = lambda blob, k: (re.search(rf"{k}:\s*([^\s,}}]+)", blob) or [None, None])[1]
+# The key is anchored to a brace/comma/space boundary and escaped. Interpolated raw
+# and unanchored (as this was), any key that is a SUFFIX of another matches inside it:
+# a code root named `irty` already resolved to `dirty`'s value, and `pushed` — added
+# to the baseline in v0.9.28 — extends that to `ushed`, `shed` and `ed`. Code-root
+# names come from directory names, so this is reachable, not theoretical.
+_kv = lambda blob, k: (re.search(rf"(?:^|[{{,\s]){re.escape(k)}:\s*([^\s,}}]+)", blob)
+                       or [None, None])[1]
 
 
 def _git(repo: Path, *args: str, timeout: int = 20) -> str:

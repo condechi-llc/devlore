@@ -4,7 +4,9 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from config import (
@@ -26,10 +28,10 @@ def resolve_invocation_path(arg: str) -> Path:
     """Resolve a user-supplied path against the directory devlore was invoked
     FROM, not the Python process's cwd.
 
-    The `devlore` launcher runs scripts via `uv run --directory <KB>`, which
-    starts Python inside the KB — so a relative argument like `.` would resolve
-    to the KB itself (and `add` would reject it as "the knowledge base itself").
-    The launcher exports DEVLORE_INVOCATION_CWD (the caller's shell cwd) so
+    A script may be started with its cwd inside the KB (historically `uv run
+    --directory <KB>` did this unconditionally) — so a relative argument like `.`
+    would resolve to the KB itself (and `add` would reject it as "the knowledge
+    base itself"). The launcher exports DEVLORE_INVOCATION_CWD (the caller's shell cwd) so
     relative paths resolve where the user actually is. Absolute paths are
     unaffected; the env var falls back to os.getcwd() when unset (e.g. a script
     run directly, not through the launcher)."""
@@ -38,6 +40,49 @@ def resolve_invocation_path(arg: str) -> Path:
         base = os.environ.get("DEVLORE_INVOCATION_CWD") or os.getcwd()
         p = Path(base) / p
     return p.resolve()
+
+
+# ── Child Python processes (v0.9.27+ shared venv) ─────────────────────
+
+# v0.9.27 collapsed the per-KB `<kb>/.venv/` into ONE shared venv at
+# ~/.devlore/.venv, and moved the KB-agnostic modules to ~/.devlore/lib. The
+# `devlore` launcher spawns every script as
+#   DEVLORE_KB_ROOT=<kb> PYTHONPATH=~/.devlore/lib ~/.devlore/.venv/bin/python3 …
+# (see the PY() helper in scripts/devlore). Python code that spawns ANOTHER
+# devlore script must reproduce that contract itself. `uv run --directory <kb>`
+# must NOT be used for this: uv materializes a venv from that KB's
+# pyproject.toml, resurrecting the very per-KB `.venv/` v0.9.27 removed.
+DEVLORE_HOME = Path.home() / ".devlore"
+DEVLORE_VENV_PY = DEVLORE_HOME / ".venv" / "bin" / "python3"
+DEVLORE_LIB = DEVLORE_HOME / "lib"
+
+
+def devlore_python() -> str:
+    """Interpreter for a devlore child process: the shared venv's python3 (it has
+    claude-agent-sdk installed), falling back to the CURRENT interpreter — already
+    the right one whenever the parent was itself launched by `devlore` — and last
+    to whatever `python3` is on PATH."""
+    if os.access(DEVLORE_VENV_PY, os.X_OK):
+        return str(DEVLORE_VENV_PY)
+    return sys.executable or shutil.which("python3") or "python3"
+
+
+def devlore_child_env(kb_root: Path, env: dict | None = None) -> dict:
+    """Environment for a devlore child process: `env` (default os.environ) with
+    ~/.devlore/lib PREPENDED to PYTHONPATH and DEVLORE_KB_ROOT set to `kb_root`.
+
+    Both are load-bearing. Without PYTHONPATH the child cannot import the shared
+    modules (config, capture_config, transcripts, …); without DEVLORE_KB_ROOT the
+    shared config.py falls back to its own __file__ location and the child writes
+    into the WRONG knowledge base. Any inherited PYTHONPATH is preserved after
+    ours; an empty one is not turned into a bare separator (which would silently
+    put the cwd on the child's import path)."""
+    child = dict(os.environ if env is None else env)
+    inherited = child.get("PYTHONPATH", "")
+    child["PYTHONPATH"] = (f"{DEVLORE_LIB}{os.pathsep}{inherited}" if inherited
+                           else str(DEVLORE_LIB))
+    child["DEVLORE_KB_ROOT"] = str(Path(kb_root).resolve())
+    return child
 
 
 # ── Local git excludes ────────────────────────────────────────────────

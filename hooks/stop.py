@@ -53,6 +53,7 @@ STATE_DIR = SCRIPTS_DIR
 sys.path.insert(0, str(SCRIPTS_DIR))
 sys.path.insert(0, str(Path.home() / ".devlore" / "lib"))
 from transcripts import iter_transcript_turns, extract_delta, parse_iso  # noqa: E402
+from utils import devlore_child_env, devlore_python  # noqa: E402
 
 logging.basicConfig(
     filename=str(SCRIPTS_DIR / "flush.log"),
@@ -179,8 +180,11 @@ def main() -> None:
     context_file.write_text(context, encoding="utf-8")
 
     flush_script = SCRIPTS_DIR / "flush.py"
+    # Shared venv + launcher env contract (v0.9.27+): `uv run --directory <kb>`
+    # would rebuild a per-KB .venv from the KB's pyproject.toml — the layout
+    # v0.9.27 deleted. See utils.devlore_python / devlore_child_env.
     cmd = [
-        "uv", "run", "--directory", str(ROOT), "python", str(flush_script),
+        devlore_python(), str(flush_script),
         str(context_file),
         session_id,
         high_water_iso or "none",
@@ -190,9 +194,13 @@ def main() -> None:
     creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
     # Tag the daily entry with the source project (worktree-resolved), like the
-    # other capture hooks.
-    flush_env = {**os.environ,
-                 "DEVLORE_CAPTURE_PROJECT": Path(resolve_worktree(cwd)).name if cwd else ""}
+    # other capture hooks. devlore_child_env layers the shared-lib PYTHONPATH and
+    # DEVLORE_KB_ROOT on top — flush.py can't import capture_config or resolve the
+    # right KB without them.
+    flush_env = devlore_child_env(ROOT, {
+        **os.environ,
+        "DEVLORE_CAPTURE_PROJECT": Path(resolve_worktree(cwd)).name if cwd else "",
+    })
 
     try:
         subprocess.Popen(

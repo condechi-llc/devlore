@@ -34,6 +34,7 @@ STATE_DIR = SCRIPTS_DIR
 sys.path.insert(0, str(SCRIPTS_DIR))
 sys.path.insert(0, str(Path.home() / ".devlore" / "lib"))
 from transcripts import extract_delta, parse_iso  # noqa: E402
+from utils import devlore_python, devlore_child_env  # noqa: E402
 
 logging.basicConfig(
     filename=str(SCRIPTS_DIR / "flush.log"),
@@ -140,12 +141,13 @@ def main() -> None:
     # Spawn flush.py as a background process
     flush_script = SCRIPTS_DIR / "flush.py"
 
+    # Spawn under the shared venv directly. `uv run --directory <kb>` (what this
+    # was) makes uv materialize a per-KB .venv from that KB's pyproject.toml on
+    # EVERY session event — resurrecting the very per-KB venvs v0.9.27 removed.
+    # These two hooks fire far more often than the Stop bootstrap, so they were
+    # the main engine of that resurrection.
     cmd = [
-        "uv",
-        "run",
-        "--directory",
-        str(ROOT),
-        "python",
+        devlore_python(),
         str(flush_script),
         str(context_file),
         session_id,
@@ -158,8 +160,11 @@ def main() -> None:
 
     # Tell flush.py which codebase this session ran in (worktree-resolved), so the
     # daily entry it writes is tagged with its source project.
-    flush_env = {**os.environ,
-                 "DEVLORE_CAPTURE_PROJECT": Path(resolve_worktree(cwd)).name if cwd else ""}
+    # Without uv the child no longer inherits an interpreter that can find the
+    # shared modules, so PYTHONPATH and DEVLORE_KB_ROOT must be supplied explicitly.
+    flush_env = devlore_child_env(ROOT, {
+        **os.environ,
+        "DEVLORE_CAPTURE_PROJECT": Path(resolve_worktree(cwd)).name if cwd else ""})
 
     try:
         subprocess.Popen(

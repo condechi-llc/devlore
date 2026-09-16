@@ -57,7 +57,7 @@ PAYLOAD_LOCAL = [
     "compile.py", "flush.py",
     "ingest_all_context.py", "ingest_doc.py", "init_kb.py", "lint.py",
     "obsidian_setup.py", "optin.py", "query.py",
-    "recheck.py", "remove_codebase.py", "status.py",
+    "recheck.py", "remove_codebase.py", "snapshot.py", "status.py",
     "statusline-wrapper.sh", "statusline.py",
     "update_kb.py", "verify.py",
 ]
@@ -282,6 +282,79 @@ def link_name(kb: Path, codebase: Path) -> str:
     return name
 
 
+NO_HOOK_ROOTS_NAME = "no-hook-roots"
+
+# Registering a directory and wiring live capture into it are two decisions that
+# devlore has always made as one. `wire()` appends to capture-roots AND writes the
+# project's own agent config in a single breath, which is right for "I want this
+# codebase documented from now on" and wrong for "I want a one-time snapshot of what
+# already happened". The snapshot case must leave the project untouched.
+#
+# Splitting them needs somewhere durable to record the intent, because capture-roots
+# membership is the ONLY thing `_rewire_capture_hooks` consults: without a marker it
+# re-wires every registered root on the next `devlore update`, and a deliberately
+# hook-free directory would quietly acquire hooks. This file is that marker.
+NO_HOOK_ROOTS_HEADER = """\
+# Directories registered for CONTENT ONLY — historical backfill and markdown docs.
+# devlore must NEVER write capture hooks into these projects, and `devlore update`
+# must not retrofit them later. One absolute path per line; '#' comments ignored.
+# Written by `devlore add --no-hooks` and `devlore snapshot`.
+"""
+
+
+def no_hook_roots(kb: Path) -> set[str]:
+    """Paths opted out of hook wiring, normalized without a trailing slash."""
+    f = kb / "scripts" / NO_HOOK_ROOTS_NAME
+    if not f.exists():
+        return set()
+    try:
+        return {ln.strip().rstrip("/") for ln in f.read_text(encoding="utf-8").splitlines()
+                if ln.strip() and not ln.lstrip().startswith("#")}
+    except OSError:
+        return set()
+
+
+def is_no_hook_root(kb: Path, path: Path) -> bool:
+    """True when `path`, or any ancestor of it, is registered content-only.
+
+    Ancestors count because capture-roots entries and the project root that
+    `project_root_of()` resolves them to are frequently different directories —
+    opting out `<repo>/docs` must also protect `<repo>` from being wired.
+    """
+    opted = no_hook_roots(kb)
+    if not opted:
+        return False
+    p = str(Path(path).resolve()).rstrip("/")
+    return any(p == o or p.startswith(o + "/") or o.startswith(p + "/") for o in opted)
+
+
+def add_no_hook_root(kb: Path, path: Path) -> bool:
+    """Record `path` as content-only. Returns False when already present."""
+    f = kb / "scripts" / NO_HOOK_ROOTS_NAME
+    entry = str(Path(path).resolve()).rstrip("/")
+    if entry in no_hook_roots(kb):
+        return False
+    f.parent.mkdir(parents=True, exist_ok=True)
+    body = f.read_text(encoding="utf-8") if f.exists() else NO_HOOK_ROOTS_HEADER
+    if body and not body.endswith("\n"):
+        body += "\n"
+    f.write_text(body + entry + "\n", encoding="utf-8")
+    return True
+
+
+def _is_devlore_hook(cmd: str, kb: Path, script: str) -> bool:
+    """True when `cmd` invokes THIS KB's `script` hook, in any generation's spelling.
+
+    Three have shipped: `uv run --directory <kb> python hooks/<s>.py` (v0.9.24),
+    `python3 <kb>/hooks/<s>.py` (v0.9.25) and `<shared-venv>/python3 <kb>/hooks/<s>.py`
+    (v0.9.27). Note the first spells the script path RELATIVE, with the KB carried in
+    `--directory`, so matching `<kb>/hooks/<s>.py` as a substring misses it. Requiring
+    both the KB path and the script filename catches all three and stays specific
+    enough not to touch a DIFFERENT KB's hooks living in the same project file.
+    """
+    return str(kb) in cmd and script in cmd
+
+
 def _merge_hook_file(
     settings_path: Path,
     kb: Path,
@@ -310,12 +383,41 @@ def _merge_hook_file(
         # `uv run` would auto-materialize a per-KB venv, which is what we're moving
         # away from — so we use `python3` (system) and rely on hook PYTHONPATH.
         pybin = "python3"
+    updated, deduped = [], 0
     for ev in events:
         cmd = f"{pybin} {kb}/hooks/{scripts[ev]}"
         groups = hooks.setdefault(ev, [])
-        already = any(h.get("command") == cmd
-                      for g in groups for h in g.get("hooks", []))
-        if already:
+        # Find THIS KB's handler for THIS hook script in any generation's spelling
+        # and rewrite it, rather than appending a new one. Matching on the whole
+        # command string — which is what this did before — made every change to how
+        # devlore spawns Python look like a brand-new hook, so v0.9.24's
+        # `uv run --directory <kb> python hooks/x.py`, v0.9.25's `python3 <kb>/hooks/x.py`
+        # and v0.9.27's shared-venv spelling all accumulated side by side. Projects
+        # ended up firing the same capture two or three times per event, with the
+        # older spellings erroring against a venv that no longer exists.
+        seen = False
+        for g in groups:
+            kept = []
+            for h in g.get("hooks", []):
+                if not _is_devlore_hook(h.get("command", ""), kb, scripts[ev]):
+                    kept.append(h)
+                    continue
+                if seen:
+                    deduped += 1      # a stale generation of a hook we already kept
+                    continue
+                seen = True
+                if h.get("command") != cmd:
+                    h["command"] = cmd
+                    h["timeout"] = timeouts[ev]
+                    if status_messages and ev in status_messages:
+                        h["statusMessage"] = status_messages[ev]
+                    updated.append(ev)
+                kept.append(h)
+            g["hooks"] = kept
+        # A group whose only handler was a dropped duplicate would otherwise linger
+        # as `{"hooks": []}` and, with a matcher, read as a configured-but-empty rule.
+        groups[:] = [g for g in groups if g.get("hooks")]
+        if seen:
             continue
         handler = {"type": "command", "command": cmd, "timeout": timeouts[ev]}
         if status_messages and ev in status_messages:
@@ -326,10 +428,17 @@ def _merge_hook_file(
             group["matcher"] = matcher
         groups.append(group)
         added.append(ev)
-    if not dry and added:
+    if not dry and (added or updated or deduped):
         settings_path.parent.mkdir(parents=True, exist_ok=True)
         settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
-    return f"registered {', '.join(added)}" if added else "already registered"
+    parts = []
+    if added:
+        parts.append(f"registered {', '.join(added)}")
+    if updated:
+        parts.append(f"rewired {', '.join(updated)}")
+    if deduped:
+        parts.append(f"removed {deduped} stale generation(s)")
+    return "; ".join(parts) if parts else "already registered"
 
 
 def merge_claude_hooks(codebase: Path, kb: Path, dry: bool) -> str:
@@ -511,17 +620,21 @@ def main() -> None:
         # Named registry: register by directory basename; bootstrap from the
         # legacy flat file if it doesn't exist yet (handles first init after
         # this code lands). If this is the user's only KB, it's the default.
+        # `load_registry`, not `list_kbs`: the latter has never existed. This import
+        # has raised ImportError on every real `devlore init` since v0.9.25 — unseen
+        # because it sits inside `if not dry`, so --dry-run exercised none of it and
+        # no KB had been created since.
         from kb_registry import (
             _bootstrap_registry_from_kb_dirs,
             get_default,
-            list_kbs,
+            load_registry,
             register_kb,
             set_default,
         )
         _bootstrap_registry_from_kb_dirs()
         register_kb(name=kb.name, path=kb,
                     description=f"devlore KB (initialized {now_iso()})")
-        if get_default() is None and len(list_kbs()) == 1:
+        if get_default() is None and len(load_registry()) == 1:
             set_default(kb.name)
     print(f"  ✓ registered in {reg} + ~/.devlore/registry.json")
 

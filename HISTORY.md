@@ -329,6 +329,51 @@ this reason. The lesson simply had not been carried across when the BIN_DIR toke
 was added. Both are now built from halves, so neither appears verbatim in a file
 that the rewriter will one day walk over.
 
+### 7e. Snapshots, and the cost of matching on strings (v0.9.28)
+
+Registering a directory and instrumenting it had always been one decision. `wire()`
+appended to `capture-roots` and wrote the project's own agent config in a single
+breath — right for "document this codebase from now on", wrong for "compile what
+already happened and leave the project alone". The second case had no path at all:
+`--no-backfill --no-docs` skips the ingest and keeps the hooks, exactly backwards.
+
+`devlore add --no-hooks` now performs every KB-local step and writes nothing outside
+the KB, recording the choice in `<kb>/scripts/no-hook-roots`. That file is not a
+convenience: `capture-roots` membership is the only thing `_rewire_capture_hooks`
+consults, and its whole job is retrofitting hooks onto registered roots — so without
+a durable marker the next `devlore update` would silently reverse the opt-out.
+`devlore snapshot <kb> --code <d> …` composes init, one `--no-hooks` add per
+directory, and a single closing compile, so articles can cite across all of them.
+
+The release is otherwise about a single bad habit: **identifying a thing by the exact
+string used to invoke it.**
+
+- **Registration stacked generations.** `_merge_hook_file` skipped an event when some
+  handler's command matched byte for byte. Every change to how devlore spawns Python
+  therefore looked like a brand-new hook, and v0.9.24's `uv run --directory`,
+  v0.9.25's bare `python3` and v0.9.27's shared venv accumulated side by side —
+  twelve handlers where four belong, the older two spellings erroring against a venv
+  that no longer exists, on every session start, compact and stop.
+- **Removal matched the same way and found nothing.** `remove_codebase` looked for
+  commands starting with `uv run --directory <kb> `, so from v0.9.25 onward
+  `devlore remove` silently left every hook in place.
+- **Five spawn sites still shelled out through `uv run --directory <kb>`**, which
+  makes uv materialize a per-KB `.venv` from that KB's `pyproject.toml`. v0.9.27 had
+  deleted those venvs; two KBs already had theirs back. The two highest-traffic sites
+  were hooks firing on every session event.
+
+All three now identify a hook by *(this KB, this script)* and spawn through the
+shared venv explicitly. Registration rewrites a stale generation in place and drops
+duplicates, which makes the fix its own migration: the rewire sweep that runs on
+every update collapses the accumulated stacks the first time it sees them.
+
+Two smaller things. `code_baseline` gained `pushed` alongside `dirty` — the baseline
+recorded *which* commit an article was anchored to, but not whether that commit was
+ever published, and an article anchored to a local-only SHA cannot have its staleness
+computed on anyone else's machine. And `scripts/devlore`, a stale duplicate of the
+launcher that v0.9.27 had already stopped shipping, was found still drifting from the
+real one at `lib/bin/devlore` and removed.
+
 ### 8. Capture-config preservation (v0.9.26)
 
 The one file under `<kb>/scripts/` that the user customizes is

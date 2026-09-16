@@ -105,15 +105,30 @@ def get_kb_by_path(path: Path) -> dict | None:
     return None
 
 
+def looks_like_kb(path: Path) -> bool:
+    """Canonical "is this a devlore KB?" test.
+
+    Every site used to ask for `scripts/devlore` — the per-KB launcher. v0.9.27
+    deleted that file and made the launcher global, so the test started returning
+    False for correctly-formed KBs. Worse, it returns False for a KB that was just
+    created, which is why `register_kb` rejected every new KB outright and
+    `devlore init` could not complete. Ask for the two directories that actually
+    define a KB and that `init_kb`/`update_kb` have always validated instead.
+    """
+    path = Path(path)
+    return (path / "knowledge").is_dir() and (path / "scripts").is_dir()
+
+
 def register_kb(name: str, path: Path, *, description: str = "") -> dict:
     """Add or look up an entry. Idempotent: if `path` already has an entry
     (by any name), return it unchanged. If `name` already maps to a DIFFERENT
     path, raise ValueError — names are unique keys. Validates that `path`
-    looks like a KB (has `scripts/devlore`) before accepting, so a typo'd
-    path doesn't pollute the registry."""
+    looks like a KB before accepting, so a typo'd path doesn't pollute the
+    registry."""
     path = Path(path).resolve()
-    if not (path / "scripts" / "devlore").exists():
-        raise ValueError(f"{path} does not look like a devlore KB (missing scripts/devlore)")
+    if not looks_like_kb(path):
+        raise ValueError(f"{path} does not look like a devlore KB "
+                         f"(missing knowledge/ or scripts/)")
     kbs = load_registry()
     existing_by_path = get_kb_by_path(path)
     if existing_by_path:
@@ -289,7 +304,7 @@ def prompt_to_register(cwd: Path, *, self_kb: Path) -> dict | None:
     candidate = None
     cur = cwd
     while cur != cur.parent:
-        if (cur / "scripts" / "devlore").exists():
+        if looks_like_kb(cur):
             candidate = cur
             break
         cur = cur.parent
@@ -343,7 +358,7 @@ def _bootstrap_registry_from_kb_dirs() -> int:
             continue
         if p in known_paths:
             continue
-        if not (Path(p) / "scripts" / "devlore").exists():
+        if not looks_like_kb(Path(p)):
             continue
         kbs.append({
             "name": Path(p).name,

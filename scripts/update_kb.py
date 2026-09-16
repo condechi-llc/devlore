@@ -90,7 +90,7 @@ def _rewire_capture_hooks(kb: Path) -> None:
     sys.path.insert(0, str(kb / "scripts"))
     try:
         from optin import project_root_of
-        from init_kb import merge_codebase_hooks
+        from init_kb import merge_codebase_hooks, is_no_hook_root
     except Exception as e:
         print(f"  ⚠ could not load hook-rewire helpers: {e}")
         return
@@ -103,6 +103,14 @@ def _rewire_capture_hooks(kb: Path) -> None:
         if d == kb or str(d).startswith(str(kb) + "/"):
             continue  # inside the KB → covered by the KB's own settings.json
         if not d.is_dir():
+            continue
+        # Content-only roots (`devlore add --no-hooks`, `devlore snapshot`) are
+        # registered for backfill but must never receive hooks. Without this check
+        # the rewire sweep — whose whole job is retrofitting hooks onto capture-roots
+        # entries — would silently undo that choice on the next update, which is
+        # exactly the failure a user opting out is trying to avoid.
+        if is_no_hook_root(kb, d):
+            print(f"  · {d.name}: content-only root, hooks deliberately not wired")
             continue
         proj = project_root_of(d)
         if proj in seen:

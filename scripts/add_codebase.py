@@ -54,9 +54,15 @@ def _append_line(file: Path, line: str) -> bool:
     return True
 
 
-def wire(codebase: Path) -> str:
-    """Symlink + capture-roots + code-roots + hooks in the codebase. Idempotent."""
-    from init_kb import link_name, merge_codebase_hooks
+def wire(codebase: Path, no_hooks: bool = False) -> str:
+    """Symlink + capture-roots + code-roots + (optionally) hooks. Idempotent.
+
+    `no_hooks=True` performs every KB-LOCAL step and writes nothing whatsoever into
+    the codebase. That is the snapshot case: ingest what already happened, leave the
+    project alone. The opt-out is recorded in <kb>/scripts/no-hook-roots so a later
+    `devlore update` does not retrofit the hooks this deliberately skipped.
+    """
+    from init_kb import link_name, merge_codebase_hooks, add_no_hook_root
     name = link_name(KB, codebase)
     link = KB / name
     if link.is_symlink() and link.resolve() == codebase.resolve():
@@ -76,8 +82,14 @@ def wire(codebase: Path) -> str:
     from utils import git_exclude
     if git_exclude(KB, name, add=True):
         print(f"  ✓ code link kept out of git ({name} → .git/info/exclude)")
-    note = merge_codebase_hooks(codebase, KB, dry=False)
-    print(f"  ✓ capture hooks for Claude Code + Codex in {codebase.name}: {note}")
+    if no_hooks:
+        add_no_hook_root(KB, codebase)
+        print(f"  · no capture hooks written into {codebase.name} (--no-hooks) — "
+              f"nothing outside the KB was modified")
+        print(f"  ✓ recorded in scripts/no-hook-roots (devlore update will not retrofit them)")
+    else:
+        note = merge_codebase_hooks(codebase, KB, dry=False)
+        print(f"  ✓ capture hooks for Claude Code + Codex in {codebase.name}: {note}")
     return name
 
 
@@ -199,6 +211,12 @@ def main() -> None:
     ap.add_argument("--yes", action="store_true", help="Accept all prompts.")
     ap.add_argument("--no-backfill", action="store_true")
     ap.add_argument("--no-docs", action="store_true")
+    ap.add_argument("--no-hooks", action="store_true",
+                    help="Register the codebase WITHOUT writing capture hooks into it. "
+                         "Nothing outside the KB is modified: no .claude/settings.local.json, "
+                         "no .codex/hooks.json. Historical backfill and doc ingest still run — "
+                         "this is the one-time-snapshot mode. Recorded in scripts/no-hook-roots "
+                         "so `devlore update` never retrofits them.")
     ap.add_argument("--full-recursive", action="store_true",
                     help="Scan the WHOLE tree for markdown docs, not just the root and "
                          "first-level dirs. The git/deny-list/tripwire filters still "
@@ -235,7 +253,7 @@ def main() -> None:
                   if a.parent.name in ("concepts", "connections", "qa", "mocs")])
 
     print(f"Adding {codebase} to the knowledge base at {KB}\n")
-    wire(codebase)
+    wire(codebase, no_hooks=args.no_hooks)
     if not args.no_backfill:
         backfill(codebase, args.yes)
     if not args.no_docs:

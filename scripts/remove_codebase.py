@@ -67,7 +67,15 @@ def _unwire_hook_file(settings_path: Path, events: tuple[str, ...], label: str) 
     except (json.JSONDecodeError, OSError):
         print(f"  ⚠ {settings_path} unreadable — remove the KB hooks manually")
         return
-    ours = f"uv run --directory {KB} "
+    # Identify this KB's hooks by (KB path + hooks/), not by a command prefix.
+    # The prefix this used — `uv run --directory <KB> ` — is only v0.9.24's spelling;
+    # v0.9.25 switched to `python3 <KB>/hooks/x.py` and v0.9.27 to the shared venv,
+    # so `startswith` stopped matching anything and `devlore remove` silently left
+    # every hook behind. Same defect as the one that made registration stack
+    # generations, in the opposite direction.
+    def _ours(cmd: str) -> bool:
+        return str(KB) in cmd and "hooks/" in cmd
+
     hooks = settings.get("hooks", {})
     removed = []
     for ev in events:
@@ -75,7 +83,7 @@ def _unwire_hook_file(settings_path: Path, events: tuple[str, ...], label: str) 
         for g in groups:
             before = len(g.get("hooks", []))
             g["hooks"] = [h for h in g.get("hooks", [])
-                          if not str(h.get("command", "")).startswith(ours)]
+                          if not _ours(str(h.get("command", "")))]
             if len(g["hooks"]) < before:
                 removed.append(ev)
         hooks[ev] = [g for g in groups if g.get("hooks")]

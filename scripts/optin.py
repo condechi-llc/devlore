@@ -88,8 +88,19 @@ def main() -> None:
     if inside_kb:
         print("== inside the KB project: covered by its own hooks (no wiring needed)")
     else:
-        proj = project_root_of(real)
-        print(wire_hooks(proj))
+        try:
+            from init_kb import is_no_hook_root
+            opted_out = is_no_hook_root(ROOT, real)
+        except Exception:
+            opted_out = False
+        if opted_out:
+            # Registered content-only. Honour that here too: opting in from a second
+            # entry point should not quietly reverse a deliberate opt-out.
+            print("== content-only root (scripts/no-hook-roots): hooks NOT wired.\n"
+                  "   Remove the entry from that file first if you want live capture here.")
+        else:
+            proj = project_root_of(real)
+            print(wire_hooks(proj))
 
     print("\nDone. Start a NEW session in that directory for it to take effect.")
 

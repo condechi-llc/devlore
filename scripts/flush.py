@@ -32,9 +32,10 @@ LOG_FILE = SCRIPTS_DIR / "flush.log"
 
 # Shared machinery lives at ~/.devlore/lib/ (v0.9.25+). Add both <kb>/scripts
 # (for any KB-local helpers) and the shared lib (for capture_config, config,
-# transcripts, etc.). Invoked by hooks as `uv run --directory <kb> python
-# flush.py …` with no PYTHONPATH, so this is the only reliable way to find
-# the shared modules.
+# transcripts, etc.). Hooks now spawn this under the shared venv WITH
+# PYTHONPATH set (v0.9.28) — but a stray `python3 flush.py` from a shell, or a
+# hook config still carrying a pre-v0.9.28 spelling, arrives with neither, so
+# these inserts remain the only thing that reliably finds the shared modules.
 sys.path.insert(0, str(SCRIPTS_DIR))
 sys.path.insert(0, str(Path.home() / ".devlore" / "lib"))
 
@@ -45,6 +46,7 @@ sys.path.insert(0, str(Path.home() / ".devlore" / "lib"))
 # from scripts/capture-config (editable, no code change).
 from capture_config import get_limits  # noqa: E402
 from config import system_cli_path  # noqa: E402
+from utils import devlore_child_env, devlore_python  # noqa: E402
 
 CHUNK_CHARS = get_limits()["chunk_chars"]
 MAX_CHUNKS = 24
@@ -264,7 +266,10 @@ def maybe_trigger_compilation() -> None:
 
     logging.info("Compilation triggered: pending daily log(s) detected")
 
-    cmd = ["uv", "run", "--directory", str(ROOT), "python", str(compile_script)]
+    # Spawn under the SHARED venv with the launcher's env contract (v0.9.27+).
+    # `uv run --directory <kb>` would rebuild a per-KB .venv from the KB's
+    # pyproject.toml — the layout v0.9.27 deleted. See utils.devlore_python.
+    cmd = [devlore_python(), str(compile_script)]
 
     kwargs: dict = {}
     if sys.platform == "win32":
@@ -274,7 +279,8 @@ def maybe_trigger_compilation() -> None:
 
     try:
         log_handle = open(str(SCRIPTS_DIR / "compile.log"), "a")
-        _sp.Popen(cmd, stdout=log_handle, stderr=_sp.STDOUT, cwd=str(ROOT), **kwargs)
+        _sp.Popen(cmd, stdout=log_handle, stderr=_sp.STDOUT, cwd=str(ROOT),
+                  env=devlore_child_env(ROOT), **kwargs)
     except Exception as e:
         logging.error("Failed to spawn compile.py: %s", e)
 

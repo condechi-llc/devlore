@@ -62,6 +62,7 @@ from transcripts import (  # noqa: E402
     transcript_metadata,
     transcript_session_id,
 )
+from utils import devlore_child_env, devlore_python  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
 from capture_gate import should_capture  # noqa: E402
@@ -477,11 +478,14 @@ def fabricated_tokens() -> set[tuple[str, str]]:
 # ── per-conversation pipeline ─────────────────────────────────────────────────
 
 def run_compile(daily_file: Path) -> tuple[bool, float]:
-    """compile.py --file <daily>; returns (ok, cost)."""
+    """compile.py --file <daily>; returns (ok, cost).
+
+    Spawned under the SHARED venv with the launcher's env contract (v0.9.27+) —
+    `uv run --directory <kb>` would rebuild a per-KB .venv from the KB's
+    pyproject.toml, the layout v0.9.27 deleted."""
     proc = subprocess.run(
-        ["uv", "run", "--directory", str(ROOT), "python", str(SCRIPTS / "compile.py"),
-         "--file", str(daily_file)],
-        capture_output=True, text=True, cwd=str(ROOT))
+        [devlore_python(), str(SCRIPTS / "compile.py"), "--file", str(daily_file)],
+        capture_output=True, text=True, cwd=str(ROOT), env=devlore_child_env(ROOT))
     out = proc.stdout + proc.stderr
     m = re.search(r"Total cost: \$([\d.]+)", out)
     ok = proc.returncode == 0 and "Another compile is already running" not in out

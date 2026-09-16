@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import shutil
 import sys
 from pathlib import Path
 
@@ -120,7 +121,8 @@ def resolve_or_redispatch(command: str, target: Path, self_kb: Path,
     no-op)."""
     if kb_override:
         owner = Path(kb_override).expanduser().resolve()
-        if not (owner / "scripts" / "devlore").exists():
+        from kb_registry import looks_like_kb
+        if not looks_like_kb(owner):
             sys.exit(f"error: --kb {owner} does not look like a devlore KB")
     else:
         # Full-path invocation = explicit KB choice; bare `devlore` on PATH is
@@ -145,6 +147,14 @@ def resolve_or_redispatch(command: str, target: Path, self_kb: Path,
     print(f"→ routing to the owning KB: {owner}\n")
     env = dict(os.environ)
     env.pop(VIA_SYMLINK_ENV, None)  # the owner's launcher is invoked by full path
-    rc = subprocess.run([str(owner / "scripts" / "devlore"), command,
-                         str(target), *forward_args], env=env).returncode
+    # v0.9.27+: there is no per-KB launcher to exec. Route through the global one
+    # and name the destination with --kb, which is exactly what it expects.
+    launcher = Path.home() / ".devlore" / "bin" / "devlore"
+    if not launcher.exists():
+        found = shutil.which("devlore")
+        if not found:
+            sys.exit("error: cannot find the devlore launcher (~/.devlore/bin/devlore)")
+        launcher = Path(found)
+    rc = subprocess.run([str(launcher), command, str(target),
+                         "--kb", str(owner), *forward_args], env=env).returncode
     sys.exit(rc)

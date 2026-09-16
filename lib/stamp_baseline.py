@@ -65,17 +65,63 @@ def repo_dirty(repo: Path) -> bool:
                                capture_output=True, text=True).stdout.strip())
 
 
+_pushed_cache: dict[tuple[str, str], bool] = {}
+
+
+def repo_pushed(repo: Path, sha: str) -> bool:
+    """True when `sha` is reachable from some REMOTE-tracking ref — i.e. PUBLISHED.
+
+    A stamped SHA that exists only in this clone is useless to anyone else: the
+    Tier-2 scan (scripts/staleness.py) diffs cited code against it, and on a machine
+    that only ever pulled, that diff cannot be computed AT ALL. A repo with no
+    remote, a SHA no remote branch contains, or any git failure all read as NOT
+    pushed — the conservative direction, since the flag's whole point is certainty
+    that the baseline is shared. Memoized: the retrofit asks about the same
+    (repo, sha) once per article."""
+    if not sha:
+        return False
+    key = (str(repo), sha)
+    if key not in _pushed_cache:
+        try:
+            out = subprocess.run(
+                ["git", "-C", str(repo.resolve()), "branch", "-r", "--contains", sha],
+                capture_output=True, text=True, timeout=20)
+            _pushed_cache[key] = out.returncode == 0 and bool(out.stdout.strip())
+        except (OSError, subprocess.SubprocessError):
+            _pushed_cache[key] = False
+    return _pushed_cache[key]
+
+
+def _pushed_flag(shas: dict[str, str]) -> bool | None:
+    """Global `pushed`, with the same all-or-nothing semantics as `dirty`: True only
+    when EVERY root that contributed a SHA has that SHA published. Roots with no SHA
+    (non-git, or a git call that failed) never appear in the map, so they cannot drag
+    the flag down on their own. None — meaning "omit the key" — when NO root
+    contributed a SHA: with nothing stamped there is no fact to assert either way."""
+    contributing = {n: s for n, s in shas.items() if s and n in REPOS}
+    if not contributing:
+        return None
+    return all(repo_pushed(REPOS[n], s) for n, s in contributing.items())
+
+
 def latest_source_daily(text: str) -> str:
     dates = _daily.findall(text)
     return max(dates) if dates else ""
 
 
 def _baseline_line(shas: dict[str, str], dirty: bool) -> str:
-    """`code_baseline: { <name>: <sha>, …, dirty, stamped }` — one key per GIT code
-    root (scripts/code-roots); non-git roots have no SHA and are simply omitted."""
+    """`code_baseline: { <name>: <sha>, …, dirty, pushed, stamped }` — one key per GIT
+    code root (scripts/code-roots); non-git roots have no SHA and are simply omitted.
+
+    `pushed` is derived from `shas` here rather than passed in, so every caller of
+    apply_stamp (compile.py's stamp_compiled, recheck.py's re-stamp, the retrofit)
+    emits it without a signature change. It is dropped entirely when no root
+    contributed a SHA — see _pushed_flag."""
     pairs = "".join(f"{n}: {s}, " for n, s in shas.items() if s)
+    pushed = _pushed_flag(shas)
+    pub = "" if pushed is None else f"pushed: {str(pushed).lower()}, "
     return (f"code_baseline: {{ {pairs}"
-            f"dirty: {str(dirty).lower()}, stamped: {_today()} }}")
+            f"dirty: {str(dirty).lower()}, {pub}stamped: {_today()} }}")
 
 
 def apply_stamp(text: str, vintage: str, shas: dict[str, str], dirty: bool) -> str | None:

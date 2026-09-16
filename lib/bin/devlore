@@ -179,6 +179,7 @@ case "$cmd" in
   update)    PY update_kb.py "${@:2}" ;;
   obsidian)  PY obsidian_setup.py "${@:2}" ;;
   init)      PY init_kb.py "${@:2}" ;;
+  snapshot)  PY snapshot.py "${@:2}" ;;
 
   # ── read commands (cwd-decoupled) ────────────────────────────────────
   ask)        _strip_kb "${@:2}"; PY query.py "${_out[@]}" ;;
@@ -291,6 +292,11 @@ Obsidian (optional)
 Elsewhere
   devlore init <dir> [...]    bootstrap ANOTHER knowledge base in a new
                               directory (each KB is independent)
+  devlore snapshot <dir> --code <d> [--code <d> ...]
+                              build a KB from directories WITHOUT instrumenting
+                              them: historical backfill + markdown docs, no
+                              capture hooks written into those projects, nothing
+                              outside the new KB modified. Dry run unless --yes.
 
 Multi-KB routing: the bare \`devlore\` on PATH resolves each read command to
 the KB the cwd is inside, falling back to the default set by \`devlore use\`;
