@@ -119,17 +119,20 @@ def backfill(codebase: Path, assume_yes: bool) -> None:
         cwd=str(KB))
 
 
-def ingest_docs(codebase: Path, assume_yes: bool, full_recursive: bool = False) -> bool:
+def ingest_docs(codebase: Path, assume_yes: bool, full_recursive: bool = False,
+                ignore_gitignore: bool = False) -> bool:
     """Offer the repo's human-written markdown docs.
 
     Candidates come from `git ls-files` (tracked + untracked-but-not-ignored)
     filtered through the vendored-tree deny-list and the per-directory tripwire
     (see utils.collect_markdown_docs). Default depth is root + first-level
-    dirs; --full-recursive scans the whole tree. Every accepted file is
-    compiled by the LLM — real cost — so the list is previewed and gated.
+    dirs; --full-recursive scans the whole tree; --ignore-gitignore also offers
+    gitignored markdown. Every accepted file is compiled by the LLM — real cost
+    — so the list is previewed and gated.
     """
     from utils import collect_markdown_docs
-    candidates, excluded = collect_markdown_docs(codebase, recursive=full_recursive)
+    candidates, excluded = collect_markdown_docs(codebase, recursive=full_recursive,
+                                                 ignore_gitignore=ignore_gitignore)
     for top, n in sorted(excluded.items()):
         print(f"\n  ⚠ skipping {top}/ — {n} markdown files there looks like a vendored or"
               f"\n    generated tree; if it's really your writing, ingest it explicitly:"
@@ -137,12 +140,15 @@ def ingest_docs(codebase: Path, assume_yes: bool, full_recursive: bool = False) 
     if not candidates:
         print("\nNo markdown docs found in the codebase to ingest."
               + ("" if full_recursive else "\n(only the root and first-level dirs are "
-                 "scanned by default — `--full-recursive` scans the whole tree)"))
+                 "scanned by default — `--full-recursive` scans the whole tree)")
+              + ("" if ignore_gitignore else "\n(gitignored docs are skipped — "
+                 "`--ignore-gitignore` offers those too)"))
         return False
     total_kb = sum(p.stat().st_size for p in candidates) / 1024
     scope = "whole tree" if full_recursive else "root + first-level dirs"
+    gitness = "gitignored included" if ignore_gitignore else "git-aware"
     print(f"\nFound {len(candidates)} markdown doc(s) (~{total_kb:.0f} KB; {scope}, "
-          f"git-aware, vendored trees filtered):")
+          f"{gitness}, vendored trees filtered):")
     for p in candidates[:12]:
         print(f"  - {p.relative_to(codebase)}")
     if len(candidates) > 12:
@@ -222,6 +228,10 @@ def main() -> None:
                          "first-level dirs. The git/deny-list/tripwire filters still "
                          "apply, but review the preview — every accepted file is "
                          "compiled at real LLM cost.")
+    ap.add_argument("--ignore-gitignore", action="store_true",
+                    help="Also offer GITIGNORED markdown docs (research notes, drafts "
+                         "kept out of the remote on purpose). The deny-list, depth and "
+                         "tripwire filters still apply — review the preview.")
     ap.add_argument("--compile-pending", action="store_true",
                     help="After wiring/backfill/docs, compile ALL pending daily logs into "
                          "wiki articles now (incremental — skips already-compiled dailies), "
@@ -236,8 +246,15 @@ def main() -> None:
         sys.exit(f"error: not a directory: {codebase}")
 
     from kb_resolve import resolve_or_redispatch
+    # EVERY flag must be listed here: resolve_or_redispatch re-execs the owning
+    # KB's launcher with exactly these args, so a flag omitted from this list is
+    # silently dropped when the target belongs to another KB. --no-hooks is the
+    # dangerous one — losing it writes capture hooks into a codebase the user
+    # explicitly asked to leave untouched.
     fwd = [f for f, on in [("--yes", args.yes), ("--no-backfill", args.no_backfill),
-                           ("--no-docs", args.no_docs), ("--full-recursive", args.full_recursive),
+                           ("--no-docs", args.no_docs), ("--no-hooks", args.no_hooks),
+                           ("--full-recursive", args.full_recursive),
+                           ("--ignore-gitignore", args.ignore_gitignore),
                            ("--compile-pending", args.compile_pending)] if on]
     resolve_or_redispatch("add", codebase, KB, fwd, args.kb, require_owner=True)
 
@@ -257,7 +274,7 @@ def main() -> None:
     if not args.no_backfill:
         backfill(codebase, args.yes)
     if not args.no_docs:
-        ingest_docs(codebase, args.yes, args.full_recursive)
+        ingest_docs(codebase, args.yes, args.full_recursive, args.ignore_gitignore)
     if args.compile_pending:
         compile_pending()
     briefing(before)

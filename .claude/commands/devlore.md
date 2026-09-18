@@ -1,6 +1,6 @@
 ---
 description: Ingest hand-written doc file(s) or a directory into the knowledge base (daily log -> wiki)
-argument-hint: "@file.md | <dir> [more ...] | --ingest-all-context [flags]"
+argument-hint: "@file.md | <dir> [more ...] [--full-recursive] [--ignore-gitignore] | --ingest-all-context [flags]"
 allowed-tools: Bash(devlore:*), Read
 ---
 
@@ -26,6 +26,11 @@ Do this:
    path is relative to the current working directory; an absolute path is used as-is;
    a **directory** ingests every top-level `*.md` inside it. If no path was given,
    ask the user which file or directory to ingest and stop.
+
+   Pass through the scan flags if the user gave them: `--full-recursive` (whole
+   tree, not just root + first-level dirs) and `--ignore-gitignore` (include
+   gitignored markdown — research notes deliberately kept out of the remote).
+   Both only apply to **directory** arguments; a named file is always ingested.
 
 2. Append the doc(s) to today's daily log (deterministic, no summarization):
 

@@ -391,6 +391,34 @@ line so the file doesn't silently grow. The merge is idempotent — re-running
 file, so the post-update auto-commit stays quiet for users who never
 customized anything.
 
+### 9. The docs you never push (v0.9.29)
+
+`collect_markdown_docs` has always taken the repo's own intent as its filter:
+candidates come from `git ls-files --cached --others --exclude-standard`, so
+gitignored build output and vendor trees vanish without a deny-list entry. That
+is right for generated noise and wrong for one real case — research notes,
+drafts and working documents deliberately kept out of the remote, which are
+often the most worth compiling. `--ignore-gitignore` on `devlore docs` and
+`devlore add` drops `--exclude-standard` and nothing else: the vendored-tree
+deny-list, the depth limit, the size floor and the per-directory tripwire all
+still run, so `node_modules/` stays out whether or not it is gitignored.
+
+The release also closes a gap that had been live since v0.9.27. The flag's help
+text shipped without its implementation: the work sat in a stash while the
+launcher it had edited was moved to `lib/bin/devlore`, carrying the help along.
+For two releases `devlore docs <dir> --ignore-gitignore` read the flag as a
+*path*, printed `SKIP (not found)`, scanned without it and exited 0 — which is
+the code the launcher's `&&` tests before running `compile`. The user paid for a
+compile and did not get the documents they asked for. Documentation that
+promises a flag is a contract; the half that shipped was the half that could not
+keep it.
+
+One adjacent fix: `--no-hooks`, added in v0.9.28, was missing from the argument
+list `add` forwards when it re-execs the owning KB's launcher. A `devlore add
+<repo> --no-hooks` aimed at a codebase owned by another KB silently lost the
+flag and wrote capture hooks into the repo the user had asked it to leave
+untouched.
+
 ## The lineage, in one line
 
 coleam00's claude-memory-compiler (installed May 22, 2026) → heavily adapted

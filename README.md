@@ -96,7 +96,7 @@ Source-code analogy (h/t Karpathy): the daily logs are *source code*, the compil
 | `devlore compile` | Compile pending daily logs into articles |
 | `devlore verify` | Run the hallucination + staleness gates |
 | `devlore backfill` | Batch-ingest past Claude Code and Codex conversations (dry-run + cost gate first) |
-| `devlore docs <path>` | Ingest markdown docs, then compile (a dir scans root + first-level subdirs, git-aware + vendor-filtered; `--full-recursive` for the whole tree — compiling costs real money, review the preview) |
+| `devlore docs <path>` | Ingest markdown docs, then compile (a dir scans root + first-level subdirs, git-aware + vendor-filtered; `--full-recursive` for the whole tree, `--ignore-gitignore` to include gitignored docs — compiling costs real money, review the preview) |
 | `devlore status` | What the KB holds: articles, dailies, captured sessions, capture roots, spend |
 | `devlore update` | Refresh the KB's machinery from the latest release (your knowledge is never touched) |
 | `devlore obsidian` | Add/refresh the optional Obsidian layer (side-panel plugin + vault config) in this KB — use it if you skipped Obsidian at install; prints the one-time activation steps |

@@ -347,13 +347,23 @@ DOC_MIN_BYTES = 200   # at or below this a .md is noise (badge stubs, empty temp
 DOC_TRIPWIRE = 50     # a first-level dir contributing ≥ this many docs smells vendored
 
 
-def collect_markdown_docs(root: Path, recursive: bool = False) -> tuple[list[Path], dict[str, int]]:
+def collect_markdown_docs(root: Path, recursive: bool = False,
+                          ignore_gitignore: bool = False) -> tuple[list[Path], dict[str, int]]:
     """Find human-written markdown docs under `root` for ingestion.
 
     Candidate set: `git ls-files` (tracked + untracked-but-not-ignored) when
     `root` is a git repo — the repo's own intent signal, so gitignored vendor
     trees and build output vanish for free — falling back to a filesystem walk
-    otherwise. Candidates then pass four gates:
+    otherwise.
+
+    `ignore_gitignore=True` drops `--exclude-standard`, so gitignored markdown
+    is a candidate too: research notes and drafts deliberately kept out of the
+    remote are exactly the writing you may want in the KB. It only widens the
+    git gate — the deny-list, depth, size and tripwire gates below still run,
+    and it is a no-op on the non-git filesystem walk (which never consulted
+    .gitignore in the first place).
+
+    Candidates then pass four gates:
 
       deny-list  drop any path with a vendored/hidden DIRECTORY segment at any
                  depth (catches tracked vendor trees git intent can't)
@@ -370,7 +380,8 @@ def collect_markdown_docs(root: Path, recursive: bool = False) -> tuple[list[Pat
     root = root.resolve()
     git = subprocess.run(
         ["git", "-C", str(root), "ls-files", "--cached", "--others",
-         "--exclude-standard", "-z", "--", "*.md"],
+         *([] if ignore_gitignore else ["--exclude-standard"]),
+         "-z", "--", "*.md"],
         capture_output=True, text=True)
     if git.returncode == 0:
         rels = [Path(r) for r in git.stdout.split("\0") if r]

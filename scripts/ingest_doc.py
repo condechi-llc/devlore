@@ -8,13 +8,18 @@ this does NOT pre-summarize — the daily log is source material, and compile
 does the extraction, so your careful docs reach the wiki at full fidelity.
 
 Usage:
-    uv run python scripts/ingest_doc.py <file.md | dir> [more ...] [--full-recursive]
+    uv run python scripts/ingest_doc.py <file.md | dir> [more ...]
+                                        [--full-recursive] [--ignore-gitignore]
 
 A directory argument is scanned for human-written markdown via
 utils.collect_markdown_docs: git-aware (tracked + untracked-but-not-ignored),
 vendored trees deny-listed at any depth, root + first-level subdirs by default
 (--full-recursive for the whole tree), with a tripwire on directories that
 contribute suspiciously many files. Explicitly named FILES bypass all filters.
+
+--ignore-gitignore widens the git gate to gitignored markdown too — for
+research notes and drafts kept out of the remote on purpose. The deny-list,
+depth, size and tripwire gates still apply.
 """
 
 from __future__ import annotations
@@ -45,9 +50,12 @@ def append_to_daily(content: str, section: str) -> Path:
 
 def main() -> None:
     full_recursive = "--full-recursive" in sys.argv[1:]
-    args = [a for a in sys.argv[1:] if a not in ("--", "", "--full-recursive")]
+    ignore_gitignore = "--ignore-gitignore" in sys.argv[1:]
+    args = [a for a in sys.argv[1:]
+            if a not in ("--", "", "--full-recursive", "--ignore-gitignore")]
     if not args:
-        print("Usage: ingest_doc.py <file.md | dir> [more ...] [--full-recursive]")
+        print("Usage: ingest_doc.py <file.md | dir> [more ...] "
+              "[--full-recursive] [--ignore-gitignore]")
         sys.exit(1)
 
     # Expand args into a flat list of files (a directory -> filtered doc scan;
@@ -61,13 +69,16 @@ def main() -> None:
         if not p.is_absolute():
             p = Path.cwd() / p
         if p.is_dir():
-            md, excluded = collect_markdown_docs(p, recursive=full_recursive)
+            md, excluded = collect_markdown_docs(p, recursive=full_recursive,
+                                                 ignore_gitignore=ignore_gitignore)
             for top, n in sorted(excluded.items()):
                 print(f"SKIP (vendored-tree smell, {n} files): {arg}/{top}/ — "
                       f"pass that directory explicitly to ingest it")
             if not md:
+                hints = ([] if full_recursive else ["--full-recursive scans deeper"]) \
+                    + ([] if ignore_gitignore else ["--ignore-gitignore includes gitignored docs"])
                 print(f"SKIP (no ingestable *.md in dir): {arg}"
-                      + ("" if full_recursive else "  (--full-recursive scans deeper)"))
+                      + (f"  ({'; '.join(hints)})" if hints else ""))
             files.extend(md)
         elif p.exists():
             files.append(p)
