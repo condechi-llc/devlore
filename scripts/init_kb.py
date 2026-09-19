@@ -573,6 +573,15 @@ def main() -> None:
         note = merge_codebase_hooks(cb, kb, dry)
         print(f"  ✓ capture hooks for {cb.name}: {note}")
 
+    # The KB captures sessions run inside itself too, and its .claude/settings.json
+    # ships with the machinery above — but nothing has ever written its .codex side,
+    # so a Codex session in a new KB went uncaptured. Claude's half is deliberately
+    # NOT re-registered here: it comes from the dist and duplicating it would stack
+    # a second generation of the same hooks.
+    if not dry:
+        note = merge_codex_hooks(kb, kb, dry)
+        print(f"  ✓ this KB's own Codex capture hooks: {note}")
+
     # 5. skeletons
     if not dry:
         for sub in ("concepts", "connections", "qa", "mocs"):

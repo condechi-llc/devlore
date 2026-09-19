@@ -419,6 +419,43 @@ list `add` forwards when it re-execs the owning KB's launcher. A `devlore add
 flag and wrote capture hooks into the repo the user had asked it to leave
 untouched.
 
+### 10. The hooks nobody could reach (v0.9.29.1)
+
+Every knowledge base captures the sessions run inside itself, and for Claude
+Code that worked: the KB's `.claude/settings.json` is re-materialised from the
+distribution on every update. The Codex half was never written by anything.
+
+The reason it went unnoticed for a season is that the sweep which keeps hook
+commands current, `_rewire_capture_hooks`, skipped the KB with a note that
+looked like a decision: *inside the KB → covered by the KB's own
+settings.json*. Half of that was true. Nothing maintained the KB's own
+`.codex/hooks.json`, and since that sweep is the only code that ever rewrites a
+hook command, the file was not merely out of date — it was unreachable. No
+update could fix it, because no update looked.
+
+What it held was the pre-v0.9.25 form, `uv run --directory <kb> python
+hooks/X.py`. That is worse than obsolete. Running it materialises a per-KB
+virtualenv, the very thing v0.9.27 removed when it consolidated on one shared
+venv — and `init_kb` had already been avoiding `uv run` deliberately for that
+reason, with a comment saying so. So the machinery knew; only this one path
+never asked it. A single invocation rebuilt 231 MB inside the knowledge base,
+the hook then succeeded, and nothing anywhere reported a thing.
+
+Three of five knowledge bases on the development host carried that command. The
+two created after the change carried no Codex hooks at all, so Codex sessions
+inside a new KB were never captured.
+
+The fix covers the Codex half before the skip and registers a new KB's own
+Codex hooks at creation. Claude's half stays excluded on purpose: it comes from
+the distribution, and re-registering it would stack a second generation of the
+same hooks — precisely what v0.9.28 went to some trouble to stop.
+
+The verification said more than expected. Replaying it against a knowledge base
+with the old command planted returned *registered PreCompact, Stop; rewired
+SessionStart*: the stranded file was not just wrong, it was incomplete, missing
+two of its three events. The affected bases do not merely get a corrected
+command back. They get capture they had silently lost.
+
 ## The lineage, in one line
 
 coleam00's claude-memory-compiler (installed May 22, 2026) → heavily adapted

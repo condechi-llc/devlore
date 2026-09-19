@@ -90,7 +90,7 @@ def _rewire_capture_hooks(kb: Path) -> None:
     sys.path.insert(0, str(kb / "scripts"))
     try:
         from optin import project_root_of
-        from init_kb import merge_codebase_hooks, is_no_hook_root
+        from init_kb import merge_codebase_hooks, merge_codex_hooks, is_no_hook_root
     except Exception as e:
         print(f"  ⚠ could not load hook-rewire helpers: {e}")
         return
@@ -101,7 +101,24 @@ def _rewire_capture_hooks(kb: Path) -> None:
             continue
         d = Path(line.rstrip("/"))
         if d == kb or str(d).startswith(str(kb) + "/"):
-            continue  # inside the KB → covered by the KB's own settings.json
+            # Claude Code IS covered: the KB's own .claude/settings.json is
+            # re-materialized from the dist on every update. Codex is not — nothing
+            # writes the KB's own .codex/hooks.json, and this sweep is the only thing
+            # that ever rewrites a hook command. Skipping the KB wholesale therefore
+            # stranded its Codex hooks on the pre-v0.9.25 `uv run --directory` form,
+            # which silently rebuilds the per-KB venv v0.9.27 removed (~230 MB) the
+            # next time a Codex session opens in the KB. merge_codex_hooks is
+            # merge-aware and creates the file when absent, so covering the Codex
+            # half here both repairs KBs that predate this and wires the ones created
+            # after it, with no separate migration.
+            if kb not in seen:
+                seen.add(kb)
+                try:
+                    note = merge_codex_hooks(kb, kb, dry=False)
+                    print(f"  ✓ rewired this KB's own Codex hooks: {note}")
+                except Exception as e:
+                    print(f"  ⚠ could not rewire this KB's Codex hooks: {e}")
+            continue
         if not d.is_dir():
             continue
         # Content-only roots (`devlore add --no-hooks`, `devlore snapshot`) are
