@@ -146,12 +146,23 @@ done
 # First-detection prompt (tty-gated; opt-out via ~/.devlore/state.json).
 REG maybe-prompt --cwd "$PWD" --self "$DEVLORE_HOME" >/dev/null 2>&1 || true
 
-KB="$(REG resolve --cwd "$PWD" --explicit "$explicit" 2>/dev/null | tail -n1)"
+# Keep the resolver's stderr: when --kb was given, it explains WHICH way the
+# value failed (not a registered name, not a KB directory). Discarding it left
+# the user with a generic "no KB resolved" that named neither their argument nor
+# the reason — the gap that made this flag look unimplemented.
+_resolve_err="$(mktemp)"
+KB="$(REG resolve --cwd "$PWD" --explicit "$explicit" 2>"$_resolve_err" | tail -n1)"
 if [ -z "$KB" ]; then
-  echo "no KB resolved (cwd=$PWD). Run \`devlore\` to see registered KBs or " \
-       "\`devlore init <dir>\` to create one." >&2
+  if [ -n "$explicit" ] && [ -s "$_resolve_err" ]; then
+    cat "$_resolve_err" >&2
+  else
+    echo "no KB resolved (cwd=$PWD). Run \`devlore\` to see registered KBs or " \
+         "\`devlore init <dir>\` to create one." >&2
+  fi
+  rm -f "$_resolve_err"
   exit 1
 fi
+rm -f "$_resolve_err"
 
 # The status walker + the help text + every command body used to live in
 # <kb>/scripts/devlore — that file is gone as of v0.9.27. The single global
