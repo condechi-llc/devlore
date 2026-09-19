@@ -129,6 +129,18 @@ def append_to_daily_log(content: str, section: str = "Session", project: str = "
     # verbatim. As a body line it still gives compile (and a human skimming a daily
     # that mixes several projects) ground truth about which codebase an entry came
     # from — the signal that keeps one shared KB from cross-attributing knowledge.
+    # Redact before anything is written. A credential in the conversation would
+    # otherwise land in the daily, be committed, and become eligible for an
+    # article — see condechi-llc/devlore#16. Kinds and counts are logged; values
+    # never are, since this log is itself captured.
+    try:
+        from utils import redact_secrets, redaction_note
+        content, _found = redact_secrets(content)
+        if _found:
+            logging.warning("flush: %s", redaction_note(_found))
+            print(f"  ⚠ {redaction_note(_found)}")
+    except Exception as _e:
+        logging.warning("flush: redaction skipped (%s)", _e)
     tag = f"**Project:** {project}\n\n" if project else ""
     entry = f"### {section} ({time_str})\n\n{tag}{content}\n\n"
 

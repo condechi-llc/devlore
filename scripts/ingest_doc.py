@@ -73,6 +73,13 @@ def append_to_daily(content: str, section: str, project: str = "") -> Path:
     # Same body-tag convention flush.py uses: the source project goes in the
     # entry BODY, never the header, because compile splits on the header and
     # flush hashes it. compile reads this tag as authoritative for `project:`.
+    try:
+        from utils import redact_secrets, redaction_note
+        content, _found = redact_secrets(content)
+        if _found:
+            print(f"  ⚠ {redaction_note(_found)}")
+    except Exception as _e:
+        print(f"  · redaction skipped ({_e})")
     tag = f"**Project:** {project}\n\n" if project else ""
     entry = f"### {section} ({today.strftime('%H:%M')})\n\n{tag}{content}\n\n"
     with open(log_path, "a", encoding="utf-8") as f:

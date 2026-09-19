@@ -406,6 +406,15 @@ def append_backfill_entry(conv: dict, body: str) -> Path:
             f"# Daily Log: {conv['date']}\n\n## Sessions\n\n## Memory Maintenance\n\n",
             encoding="utf-8")
     span = f"{conv['date']}→{conv['last_iso'][:10]}" if conv["last_iso"][:10] != conv["date"] else conv["date"]
+    # Backfill is the larger exposure of the two: these transcripts can be months
+    # old and were written long before anyone thought about redaction.
+    try:
+        from utils import redact_secrets, redaction_note
+        body, _found = redact_secrets(body)
+        if _found:
+            print(f"  ⚠ {redaction_note(_found)}")
+    except Exception as _e:
+        print(f"  · redaction skipped ({_e})")
     # The project also goes in the BODY, matching flush.py: compile reads this tag
     # as authoritative for `project:`. It is in the header too, but the header is a
     # human label that compile splits on — parsing it would couple the compiler to

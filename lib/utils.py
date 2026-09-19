@@ -644,3 +644,64 @@ def build_index_entry(rel_path: str, summary: str, sources: str, updated: str) -
     """Build a single index table row."""
     link = rel_path.replace(".md", "")
     return f"| [[{link}]] | {summary} | {sources} | {updated} |"
+
+
+# ── secret redaction (capture path) ───────────────────────────────────────────
+# devlore captures every session in an opted-in codebase and commits it, so a
+# credential that appears in a conversation is written to daily/, committed, and
+# eligible to be distilled into an article and cited forever. Nothing looked for
+# one until now: the leak gate in build_dist guards the PUBLISHED artefact, not
+# what goes in. See condechi-llc/devlore#16.
+#
+# Deliberately conservative. A false positive destroys knowledge the user wanted
+# kept, and over-redaction is the failure mode that makes people disable a guard.
+# Every pattern below requires a shape that ordinary prose does not produce:
+# a fixed vendor prefix, a long high-entropy run, or a PEM header.
+SECRET_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("anthropic-key",   r"sk-ant-[A-Za-z0-9_\-]{24,}"),
+    ("openai-key",      r"\bsk-(?!ant-)[A-Za-z0-9]{32,}"),
+    ("github-token",    r"\bgh[pousr]_[A-Za-z0-9]{30,}"),
+    ("github-pat",      r"\bgithub_pat_[A-Za-z0-9_]{50,}"),
+    ("slack-token",     r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),
+    ("aws-access-key",  r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    ("google-api-key",  r"\bAIza[0-9A-Za-z_\-]{35}\b"),
+    ("bearer-header",   r"(?i)\bbearer\s+[A-Za-z0-9._\-]{30,}"),
+    ("private-key",     r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z ]+ )?PRIVATE KEY-----"),
+    # KEY=value / TOKEN: "value" assignments. Requires a secret-ish NAME and a
+    # long value, so `PATH=/usr/bin` and `model = sonnet` are untouched.
+    ("secret-assignment",
+     r"(?i)\b([A-Z0-9_]*(?:SECRET|PASSWORD|PASSWD|TOKEN|APIKEY|API_KEY|PRIVATE_KEY)[A-Z0-9_]*)"
+     r"\s*[:=]\s*[\"']?([A-Za-z0-9/+=_\-]{16,})[\"']?"),
+)
+
+
+def redact_secrets(text: str) -> tuple[str, dict[str, int]]:
+    """Replace credentials with a marker naming what was removed.
+
+    Returns (redacted_text, {kind: count}). The marker is deliberately visible:
+    a reader must be able to tell that something was taken out, or the log
+    quietly misrepresents the conversation. Values are never logged or returned —
+    only kinds and counts, since the caller's own output is itself captured.
+    """
+    import re as _re
+    found: dict[str, int] = {}
+    for kind, pattern in SECRET_PATTERNS:
+        if kind == "secret-assignment":
+            def _sub(m: "_re.Match[str]") -> str:
+                found[kind] = found.get(kind, 0) + 1
+                return f"{m.group(1)}=[REDACTED:{kind}]"
+            text = _re.sub(pattern, _sub, text)
+            continue
+        def _sub2(_m: "_re.Match[str]", _k: str = kind) -> str:
+            found[_k] = found.get(_k, 0) + 1
+            return f"[REDACTED:{_k}]"
+        text = _re.sub(pattern, _sub2, text)
+    return text, found
+
+
+def redaction_note(found: dict[str, int]) -> str:
+    """One line for a log, naming kinds and counts and never a value."""
+    if not found:
+        return ""
+    parts = ", ".join(f"{n}× {k}" for k, n in sorted(found.items()))
+    return f"redacted before writing: {parts}"
