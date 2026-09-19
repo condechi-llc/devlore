@@ -528,6 +528,7 @@ def process(conv: dict, baseline_fabricated: set) -> dict:
     try:
         body, dcost, failed_chunks = distill(conv)
         rec["cost"] += dcost
+        rec["distill_cost"] = rec.get("distill_cost", 0.0) + dcost
         if not body.strip():
             rec["status"] = "empty (FLUSH_OK)"
             write_marker(conv["sid"], conv["last_iso"])
@@ -644,6 +645,19 @@ def main() -> None:
 
     print("\n" + "=" * 64)
     spent = sum(r["cost"] for r in results)
+    # state.json only ever counted compiles and queries, so every backfill's
+    # distillation was missing from the one number most likely to be quoted as
+    # "what this KB cost" — $10.31 unaccounted on a measured run. The compiles are
+    # already added by compile.py as they happen, so only distillation is added here.
+    try:
+        from utils import load_state, save_state
+        distilled = sum(r.get("distill_cost", 0.0) for r in results)
+        if distilled:
+            st = load_state()
+            st["total_cost"] = st.get("total_cost", 0.0) + distilled
+            save_state(st)
+    except Exception as e:
+        print(f"  · cost ledger not updated ({e})")
     for r in results:
         note = f"  ← {r['reasons'][0]}" if r["reasons"] else ""
         print(f"  {r['sid'][:8]}  {r['status']:<18} ${r['cost']:.2f}{note}")
@@ -655,7 +669,12 @@ def main() -> None:
     # commit sweeps in the markers/quarantine files written after those compiles.
     try:
         from kb_commit import kb_commit
-        kb_commit(f"ingest: batch backfill — {n_ok} ingested, {n_q} quarantined (${spent:.2f})")
+        # The figure is the RUN total: distillation plus the compiles this run
+        # triggered, each of which also has its own `compile:` commit above. Saying
+        # so stops a reader summing the commit log and double-counting them — which
+        # overstated one measured run by $19.45.
+        kb_commit(f"ingest: batch backfill — {n_ok} ingested, {n_q} quarantined "
+                  f"(${spent:.2f} total, incl. the compiles committed above)")
     except Exception:
         pass
 
