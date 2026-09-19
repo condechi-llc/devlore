@@ -86,6 +86,10 @@ REG() { PYTHONPATH="$DEVLORE_LIB:${PYTHONPATH:-}" "$DEVLORE_PY" "$DEVLORE_LIB/kb
 # would error). Strip it from $@ so the routed script only sees what it expects.
 # add/remove DO accept --kb but want `--kb <name>` to resolve to a path BEFORE
 # the per-script call, so they re-use the same helper internally.
+# NOTE the ${_out[@]:+...} form at every use site. `set -u` is on and macOS ships
+# bash 3.2, where expanding an EMPTY array as "${_out[@]}" is an unbound-variable
+# error rather than nothing. `devlore ask --kb <name>` with no question strips to
+# exactly that and died with `_out[@]: unbound variable` instead of printing usage.
 _strip_kb() {
   _out=()
   _sn=0
@@ -174,7 +178,7 @@ case "$cmd" in
   # ── KB-local actions ──────────────────────────────────────────────────
   add)
     _strip_kb "${@:2}"
-    _add_args=("${_out[@]}")
+    _add_args=("${_out[@]:+${_out[@]}}")
     # `--kb <name>` → path before add_codebase.py sees it.
     for ((_i = 0; _i < ${#_add_args[@]}; _i++)); do
       if [ "${_add_args[$_i]}" = "--kb" ] && [ $((_i+1)) -lt ${#_add_args[@]} ]; then
@@ -191,7 +195,7 @@ case "$cmd" in
     ;;
   remove)
     _strip_kb "${@:2}"
-    _rm_args=("${_out[@]}")
+    _rm_args=("${_out[@]:+${_out[@]}}")
     for ((_i = 0; _i < ${#_rm_args[@]}; _i++)); do
       if [ "${_rm_args[$_i]}" = "--kb" ] && [ $((_i+1)) -lt ${#_rm_args[@]} ]; then
         _v="${_rm_args[$((_i+1))]}"
@@ -211,7 +215,7 @@ case "$cmd" in
   snapshot)  PY snapshot.py "${@:2}" ;;
 
   # ── read commands (cwd-decoupled) ────────────────────────────────────
-  ask)        _strip_kb "${@:2}"; PY query.py "${_out[@]}" ;;
+  ask)        _strip_kb "${@:2}"; PY query.py "${_out[@]:+${_out[@]}}" ;;
   compile)    PY compile.py "${@:2}" ;;
   verify)     PY verify.py "${@:2}" ;;
   backfill)   PY ingest_all_context.py "${@:2}" ;;
