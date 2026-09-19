@@ -99,6 +99,18 @@ _strip_kb() {
 # `list`, `use`, and `version` have NO KB context — pure registry operations.
 # Handle them first so a fresh install can run `devlore` / `devlore use` /
 # `devlore version` before any KB is registered.
+# `--kb <x>` before the verb used to hit the subcommand case below and die with
+# "unknown command: --kb", even though the help documents the flag for read
+# commands. Lift it out first so both placements behave the same.
+if [ "${1:-}" = "--kb" ]; then
+  if [ -z "${2:-}" ]; then
+    echo "usage: devlore --kb <name|path> <command> ..." >&2
+    exit 1
+  fi
+  _pre_kb="$2"; shift 2
+  set -- "$@" --kb "$_pre_kb"
+fi
+
 cmd="${1:-list}"
 case "$cmd" in
   list|"")
@@ -121,18 +133,6 @@ case "$cmd" in
     exit 0
     ;;
 esac
-
-# `--kb <x>` before the verb used to hit the subcommand case above and die with
-# "unknown command: --kb", even though the help documents the flag for read
-# commands. Lift it out first so both placements behave the same.
-if [ "${1:-}" = "--kb" ]; then
-  if [ -z "${2:-}" ]; then
-    echo "usage: devlore --kb <name|path> <command> ..." >&2
-    exit 1
-  fi
-  _pre_kb="$2"; shift 2
-  set -- "$@" --kb "$_pre_kb"
-fi
 
 # Active KB resolution: every other subcommand runs in some KB's context.
 # `which` and the cwd-decoupling pre-pass both use this resolution.
