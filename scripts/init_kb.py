@@ -210,17 +210,47 @@ def _install_shared_lib(source_root: Path, source_version: str, dry: bool = Fals
         return False
     if dry:
         return True
-    lib_src = source_root / "dist-assets" / "lib"
-    if not lib_src.is_dir():
-        # Source-of-truth repo without dist-assets/lib/ (e.g. a checkout mid-refactor):
-        # silently skip — init_kb.py will fall back to copying per-KB.
+    # Two layouts reach this function and they are not the same shape.
+    #
+    # A BUILT DIST already has a composed `lib/` — that is what update_kb installs,
+    # and copying it wholesale is correct.
+    #
+    # The SOURCE-OF-TRUTH repo has no `lib/` at all. Its real shared modules live in
+    # `scripts/`, and `dist-assets/lib/` holds only the three assets build_dist takes
+    # from there (pyproject.toml, __init__.py, bin/) — plus, historically, stale
+    # v0.9.25 copies of the modules that build_dist never reads. Copying that
+    # directory wholesale, which is what this did, installed those stale copies OVER
+    # the good shared lib on every `init_kb.py` run from a checkout: the normal dev
+    # bootstrap silently downgrading the machinery it was about to use.
+    #
+    # Composing from `scripts/` + PAYLOAD_SHARED here mirrors build_dist exactly, so
+    # both paths install the same bytes and `dist-assets/lib/*.py` has no reader.
+    pairs: list[tuple[Path, Path]] = []   # (source file, path relative to lib root)
+    composed = source_root / "lib"
+    if composed.is_dir():
+        pairs = [(f, f.relative_to(composed)) for f in composed.rglob("*") if f.is_file()]
+    else:
+        assets = source_root / "dist-assets" / "lib"
+        scripts_dir = source_root / "scripts"
+        for name in PAYLOAD_SHARED:
+            f = scripts_dir / name
+            if f.is_file():
+                pairs.append((f, Path(name)))
+        if assets.is_dir():
+            for extra in ("pyproject.toml", "__init__.py"):
+                f = assets / extra
+                if f.is_file():
+                    pairs.append((f, Path(extra)))
+            bin_dir = assets / "bin"
+            if bin_dir.is_dir():
+                pairs += [(f, f.relative_to(assets)) for f in bin_dir.rglob("*") if f.is_file()]
+    if not pairs:
+        # Neither layout present (e.g. a checkout mid-refactor): skip silently —
+        # init_kb.py falls back to copying per-KB.
         return False
     lib_dst = _shared_lib_root()
     lib_dst.mkdir(parents=True, exist_ok=True)
-    for f in lib_src.rglob("*"):
-        if not f.is_file():
-            continue
-        rel = f.relative_to(lib_src)
+    for f, rel in pairs:
         dst = lib_dst / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -237,7 +267,10 @@ def _install_shared_lib(source_root: Path, source_version: str, dry: bool = Fals
     # PATH symlink works AND the Obsidian plugin's allowlist (which now points at
     # ~/.devlore/bin/<name>.sh shims, post-v0.9.27) resolves to real files.
     bin_dst = Path.home() / ".devlore" / "bin"
-    launcher_src = lib_src / "bin"
+    # Same two layouts as above: a built dist keeps the launcher under lib/bin,
+    # the source repo under dist-assets/lib/bin.
+    launcher_src = (source_root / "lib" / "bin") if (source_root / "lib" / "bin").is_dir() \
+        else (source_root / "dist-assets" / "lib" / "bin")
     if launcher_src.is_dir():
         for f in sorted(launcher_src.iterdir()):
             if not f.is_file():

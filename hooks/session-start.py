@@ -17,6 +17,8 @@ Configure in .claude/settings.local.json or .codex/hooks.json:
 """
 
 import json
+import os
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -31,6 +33,68 @@ INDEX_FILE = KNOWLEDGE_DIR / "index.md"
 
 MAX_CONTEXT_CHARS = 20_000
 MAX_LOG_LINES = 30
+
+
+def capture_health_note() -> str:
+    """Warn when capture WILL fail, above everything else, or "" when it is fine.
+
+    Capture runs through the system `claude` CLI. When its auth lapses, every
+    chunk fails, the hook writes FLUSH_ERROR into the daily log, and the session
+    ends looking normal — while a Claude Code desktop session keeps working,
+    because the app refreshes its own OAuth in-process and the CLI reads the
+    stored credential. Nothing the user sees says anything is wrong, so
+    conversations are lost quietly until someone goes looking for knowledge that
+    was never captured.
+
+    Deterministic and cheap: one `claude auth status` (JSON, no tokens spent)
+    plus an env check. Never raises — a broken check must not cost a session.
+    """
+    notes: list[str] = []
+    try:
+        sys.path.insert(0, str(Path.home() / ".devlore" / "lib"))
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from config import system_cli_path
+        cli = system_cli_path()
+        if cli:
+            r = subprocess.run([cli, "auth", "status"], capture_output=True,
+                               text=True, timeout=10)
+            # The CLI exits 0 while reporting failure, so the exit code proves
+            # nothing — read the payload.
+            try:
+                logged_in = json.loads(r.stdout or "{}").get("loggedIn")
+            except ValueError:
+                # Unreadable answer (an older CLI without `auth status`, a wrapper
+                # printing prose). Say so rather than swallowing it: treating an
+                # unverifiable check as healthy is the same silence this warning
+                # exists to break.
+                logged_in = None
+                notes.append(
+                    "**Could not verify that capture will work.** `claude auth status` "
+                    "answered something this hook cannot read, so whether flushes will "
+                    "succeed is unknown. If knowledge stops appearing, check the CLI's "
+                    "sign-in first — that is the usual cause.")
+            if logged_in is False:
+                notes.append(
+                    "**Capture is OFF: the `claude` CLI is not signed in.** Every flush "
+                    "this session will fail and its knowledge will be lost (you will see "
+                    "`FLUSH_ERROR` in the daily log, and nothing else). Fix it in a real "
+                    "terminal with `claude auth login`, then recover anything already "
+                    "lost with `devlore backfill --session <id> --force` while the "
+                    "transcripts are still on disk.")
+    except Exception:
+        pass  # never block a session over a health check
+    # The other way capture dies silently: the Agent SDK prefers API-key auth over
+    # the subscription's OAuth and fails with the uninformative "returned an error
+    # result: success".
+    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+        notes.append(
+            "**`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` is set in this environment.** "
+            "The Agent SDK prefers it over the subscription's OAuth, so capture may fail "
+            "with the misleading message `returned an error result: success`. Unset it "
+            "before the session ends if flushes start failing.")
+    if not notes:
+        return ""
+    return "## \u26a0 Capture health\n\n" + "\n\n".join(notes)
 
 
 def get_recent_log() -> str:
@@ -63,6 +127,16 @@ def build_context() -> str:
     try:
         from staleness import staleness_note
         note = staleness_note()
+        if note:
+            parts.append(note)
+    except Exception:
+        pass
+
+    # Capture health FIRST: if capture is dead, everything below is knowledge the
+    # user is about to lose. Placed above the index so context truncation cannot
+    # eat it.
+    try:
+        note = capture_health_note()
         if note:
             parts.append(note)
     except Exception:
