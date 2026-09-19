@@ -691,7 +691,7 @@ def main() -> None:
             print("    " + activation_steps(kb).replace("\n", "\n    "))
     else:
         print("  · Obsidian layer skipped (core is fully functional without it; "
-              f"add it anytime with:  {kb}/scripts/devlore obsidian)")
+              f"add it anytime with:  devlore --kb {kb.name} obsidian)")
 
     # 9. git init + initial commit (after everything, so the commit is complete)
     if not dry:
@@ -712,12 +712,12 @@ def main() -> None:
 
     first = (f"  1. cd {codebases[0]}  &&  start a Claude Code or Codex session — capture is LIVE"
              if codebases else
-             f"  1. opt your first codebase in:  {kb}/scripts/devlore add <codebase-path>")
+             f"  1. opt your first codebase in:  devlore --kb {kb.name} add <codebase-path>")
     print(f"""
 Next steps:
 {first}
-  2. ask the KB:              {kb}/scripts/devlore ask "your question"
-  3. anytime:                 {kb}/scripts/devlore help{'''
+  2. ask the KB:              devlore --kb {kb.name} ask "your question"
+  3. anytime:                 devlore help{'''
   4. open ''' + str(kb) + ''' as an Obsidian vault for the rendered experience''' if args.with_obsidian else ''}""")
 
 

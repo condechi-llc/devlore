@@ -563,6 +563,16 @@ def main() -> None:
 
     # Re-wire capture hooks into external captured projects so new hook events
     # (e.g. the Stop bootstrap hook) reach existing installs, not just new opt-ins.
+    # Heal registry descriptions written by bootstrap, which describe nothing.
+    # Consumers read registry.json directly (the steward's oracle does), so a
+    # placeholder is rendered as if it were an answer.
+    try:
+        from kb_registry import backfill_descriptions
+        for name, text in backfill_descriptions():
+            print(f"  ✓ described {name}: {text}")
+    except Exception as e:
+        print(f"  · registry descriptions unchanged ({e})")
+
     _rewire_own_codex_hooks(kb)
     _rewire_capture_hooks(kb)
 

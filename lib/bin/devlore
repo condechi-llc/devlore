@@ -110,11 +110,29 @@ case "$cmd" in
     REG use "$name"
     exit 0
     ;;
+  describe)
+    name="${2:?usage: devlore describe <name> [\"text\"]}"
+    shift 2
+    REG describe "$name" "$@"
+    exit 0
+    ;;
   version|--version|-V)
     echo "devlore v$(cat "$DEVLORE_LIB/VERSION" 2>/dev/null || echo dev)  (home: $DEVLORE_HOME)"
     exit 0
     ;;
 esac
+
+# `--kb <x>` before the verb used to hit the subcommand case above and die with
+# "unknown command: --kb", even though the help documents the flag for read
+# commands. Lift it out first so both placements behave the same.
+if [ "${1:-}" = "--kb" ]; then
+  if [ -z "${2:-}" ]; then
+    echo "usage: devlore --kb <name|path> <command> ..." >&2
+    exit 1
+  fi
+  _pre_kb="$2"; shift 2
+  set -- "$@" --kb "$_pre_kb"
+fi
 
 # Active KB resolution: every other subcommand runs in some KB's context.
 # `which` and the cwd-decoupling pre-pass both use this resolution.
@@ -240,6 +258,10 @@ Managing multiple KBs (v0.9.24+)
                               marker) — no longer prints help; use \`devlore
                               help\` for the long form
   devlore use <name>          set the per-user default KB for read commands
+  devlore describe <name> ["text"]
+                              set a KB's description in the registry (consumers
+                              show it); omit the text to derive one from its
+                              code roots
   devlore which               print the KB the current directory belongs to
                               (or the default if it doesn't belong to one)
 
@@ -299,8 +321,10 @@ Elsewhere
                               outside the new KB modified. Dry run unless --yes.
 
 Multi-KB routing: the bare \`devlore\` on PATH resolves each read command to
-the KB the cwd is inside, falling back to the default set by \`devlore use\`;
-\`--kb <name>\` or \`--kb <path>\` overrides.
+the KB the cwd is inside, falling back to the default set by \`devlore use\`.
+\`--kb <name|path>\` overrides, and works before OR after the verb:
+\`devlore --kb meta-kb status\` and \`devlore status --kb meta-kb\` are the same.
+A path may name a knowledge base that was never registered.
 
 Single shared venv (v0.9.27+): every script (KB-local or shared) runs under
 \`~/.devlore/.venv/bin/python3\` instead of a per-KB \`.venv/\`. Python deps

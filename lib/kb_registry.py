@@ -119,6 +119,58 @@ def looks_like_kb(path: Path) -> bool:
     return (path / "knowledge").is_dir() and (path / "scripts").is_dir()
 
 
+# Descriptions written by bootstrap/auto-registration, which say nothing about the
+# KB. Consumers read registry.json directly and will render whatever is here, so a
+# placeholder is worse than an empty string: it looks like an answer.
+PLACEHOLDER_DESCRIPTIONS = (
+    "(bootstrapped from kb-dirs)",
+    "(auto-registered on first detection)",
+    "",
+)
+
+
+def derived_description(path: Path) -> str:
+    """A description inferred from what the KB actually documents.
+
+    Names the codebases it covers, which is the one fact a consumer choosing
+    between knowledge bases needs. Empty when the KB has no code roots — better
+    nothing than a sentence that describes no KB in particular.
+    """
+    try:
+        names = [n.strip() for n in (path / "scripts" / "code-roots").read_text(
+            encoding="utf-8").splitlines() if n.strip() and not n.strip().startswith("#")]
+    except OSError:
+        return ""
+    if not names:
+        return ""
+    if len(names) <= 4:
+        return "Documents " + ", ".join(names)
+    return f"Documents {len(names)} codebases: " + ", ".join(names[:3]) + ", …"
+
+
+def backfill_descriptions() -> list[tuple[str, str]]:
+    """Replace placeholder descriptions with derived ones. Returns what changed.
+
+    Run from `devlore update`, so the registry heals without anyone typing a
+    description. A human-written one is never overwritten — only the placeholders
+    are, and only when something can be derived.
+    """
+    kbs = load_registry()
+    changed: list[tuple[str, str]] = []
+    for e in kbs:
+        if e.get("description", "") not in PLACEHOLDER_DESCRIPTIONS:
+            continue
+        new = derived_description(Path(e["path"]))
+        if new != e.get("description", ""):
+            # Clearing to "" is deliberate when nothing can be derived: an empty
+            # description shows as absent, a placeholder shows as an answer.
+            e["description"] = new
+            changed.append((e["name"], new or "(cleared — nothing to derive)"))
+    if changed:
+        save_registry(kbs)
+    return changed
+
+
 def register_kb(name: str, path: Path, *, description: str = "") -> dict:
     """Add or look up an entry. Idempotent: if `path` already has an entry
     (by any name), return it unchanged. If `name` already maps to a DIFFERENT
@@ -250,7 +302,10 @@ def resolve_active_kb(cwd: Path, *, explicit_kb: str | None = None) -> dict | No
     """The cwd-decoupling decision in one place.
 
     Precedence (each step short-circuits):
-      1. explicit_kb: registry lookup by name (raises ValueError if missing)
+      1. explicit_kb: a registered NAME, or a PATH to a knowledge base — the
+         help has always documented both and only the name worked, so a user
+         following it with a path got "no KB resolved" and no hint why
+         (raises ValueError if neither resolves)
       2. cwd inside a registered KB: kb_from_cwd(cwd)
       3. default KB: get_default()
       4. None: no resolution possible
@@ -258,9 +313,21 @@ def resolve_active_kb(cwd: Path, *, explicit_kb: str | None = None) -> dict | No
     Returns the resolved entry, or None."""
     if explicit_kb:
         entry = get_kb(explicit_kb)
-        if entry is None:
-            raise ValueError(f"unknown KB: {explicit_kb!r}")
-        return entry
+        if entry is not None:
+            return entry
+        # Not a registered name — try it as a path, registered or not. An
+        # unregistered but valid KB directory is still a KB the user can mean.
+        cand = Path(explicit_kb).expanduser()
+        if cand.exists():
+            byp = get_kb_by_path(cand)
+            if byp is not None:
+                return byp
+            if looks_like_kb(cand):
+                return {"name": cand.name, "path": str(cand.resolve()),
+                        "description": "(not registered)", "peers": []}
+        raise ValueError(
+            f"unknown KB: {explicit_kb!r} — not a registered name and not a "
+            f"knowledge-base directory. `devlore kbs` lists the registered ones.")
     found = kb_from_cwd(cwd)
     if found:
         return found
@@ -429,6 +496,27 @@ def main(argv: list[str]) -> int:
             print(f"error: {e}", file=sys.stderr)
             return 1
         print(f"default KB set to {rest[0]}")
+        return 0
+
+    if cmd == "describe":
+        if not rest:
+            print('usage: devlore describe <name> ["text"]   (omit text to derive one)',
+                  file=sys.stderr)
+            return 1
+        name = rest[0]
+        kbs = load_registry()
+        entry = next((e for e in kbs if e["name"] == name), None)
+        if not entry:
+            print(f"error: unknown KB {name!r}. `devlore kbs` lists them.", file=sys.stderr)
+            return 1
+        text = " ".join(rest[1:]).strip() or derived_description(Path(entry["path"]))
+        if not text:
+            print(f"error: nothing to derive for {name!r} (no code roots) — "
+                  f"pass a description.", file=sys.stderr)
+            return 1
+        entry["description"] = text
+        save_registry(kbs)
+        print(f"{name}: {text}")
         return 0
 
     if cmd == "which":

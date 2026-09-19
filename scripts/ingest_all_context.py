@@ -163,20 +163,24 @@ def extract_dialogue(transcript: Path) -> tuple[str, str, str]:
 # (compile/query/flush/verify/distill run with cwd=the-KB-root, so their transcripts
 # land in the captured project dir). Ingesting them would be recursive self-capture —
 # the batch equivalent of what CLAUDE_INVOKED_BY prevents at flush time.
-MACHINERY_FINGERPRINTS = (
-    "You are a knowledge compiler",
-    "index-guided retrieval",
-    "Review the conversation context below",
-    "adversarial code-grounding verifier",
-    "HISTORICAL conversation being backfilled",
-)
+# The prompt list now lives in utils as MACHINERY_PROMPT_SENTINELS, shared with
+# the purge sweep. Two hand-maintained copies had already drifted apart, and a
+# prompt added to one but not the other is invisible in exactly the way that
+# costs money: an unfiltered machinery transcript is a billable backfill.
 
 
 def is_machinery(dialogue: str) -> bool:
+    """Prompt-text fallback for a dialogue already extracted from a transcript.
+
+    Prefer utils.is_machinery_transcript(path, kb_root) where the file is at
+    hand: it also reads the structural signal (a Python-SDK session whose cwd is
+    the KB), which no rewording can defeat. This stays for the dialogue-only
+    call sites."""
+    from utils import MACHINERY_PROMPT_SENTINELS
     # Whitespace-normalized: the prompts line-wrap in transcripts ("index-guided\n
     # retrieval"), so a plain substring match misses them across the newline.
     head = " ".join(dialogue[:3000].split())
-    return any(fp in head for fp in MACHINERY_FINGERPRINTS)
+    return any(fp in head for fp in MACHINERY_PROMPT_SENTINELS)
 
 
 def chunk_dialogue(dialogue: str) -> list[str]:

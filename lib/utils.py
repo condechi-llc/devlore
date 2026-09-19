@@ -420,12 +420,72 @@ def collect_markdown_docs(root: Path, recursive: bool = False,
 # spawns (compile / flush summarizer / backfill distill / query / tier-3
 # verify). Matched as a PREFIX of the first user message only — an interactive
 # session that merely quotes one of these strings mid-conversation never matches.
+# ONE list, used by both the purge sweep here and the backfill filter in
+# ingest_all_context. They used to be two that had already drifted apart, and
+# neither knew lint.py's prompt — so `devlore recheck` transcripts were never
+# swept AND never filtered, leaving them permanent backfill candidates.
 MACHINERY_PROMPT_SENTINELS = (
     "You are a knowledge compiler",
     "Review the conversation context below",
     "You are answering a question from a personal knowledge base",
     "You are an adversarial code-grounding verifier",
+    "Review this knowledge base for contradictions",   # lint.py / `devlore recheck`
+    "index-guided retrieval",
+    "HISTORICAL conversation being backfilled",
 )
+
+# Claude Code records how a session was started. devlore's own SDK sessions are
+# Python ones whose cwd is the knowledge base itself — a pairing nothing else
+# produces, and one that needs no maintenance when a prompt is reworded.
+#
+# The entrypoint ALONE is not enough and the tempting shortcut is wrong: a survey
+# of every transcript on the development host found `sdk-ts` carrying a genuine
+# human question ("why are smoke tests called that in programming?"). Treating
+# any SDK session as machinery would discard real conversations. The cwd is what
+# makes it safe.
+MACHINERY_ENTRYPOINT = "sdk-py"
+
+
+def _first_user_record(path: Path) -> dict:
+    """The first user record of a transcript, or {} — metadata, not just text."""
+    import json as _json
+    try:
+        with open(path, encoding="utf-8", errors="ignore") as fh:
+            for line in fh:
+                try:
+                    d = _json.loads(line)
+                except ValueError:
+                    continue
+                if d.get("type") == "user":
+                    return d
+    except OSError:
+        pass
+    return {}
+
+
+def is_machinery_transcript(path: Path, kb_root: Path | None = None) -> bool:
+    """True when this transcript is one of devlore's own SDK sessions.
+
+    Two independent signals, either sufficient:
+
+    - Structural: a Python-SDK session whose cwd is the knowledge base. Survives
+      any rewording of the prompts.
+    - Textual: the first user turn starts with a known machinery prompt. Kept
+      because it is what older transcripts can be judged by, and because it
+      still catches a machinery session started some other way.
+    """
+    rec = _first_user_record(path)
+    if kb_root is not None and rec.get("entrypoint") == MACHINERY_ENTRYPOINT:
+        try:
+            if os.path.realpath(str(rec.get("cwd", ""))) == os.path.realpath(str(kb_root)):
+                return True
+        except OSError:
+            pass
+    msg = rec.get("message", {}) or {}
+    content = msg.get("content")
+    if isinstance(content, list):
+        content = " ".join(str(x.get("text", "")) for x in content if isinstance(x, dict))
+    return str(content or "").lstrip().startswith(MACHINERY_PROMPT_SENTINELS)
 
 
 def claude_project_dir(root: Path) -> Path:
@@ -486,7 +546,7 @@ def purge_machinery_transcripts(root: Path, grace_hours: int = 24) -> tuple[int,
         try:
             if f.stat().st_mtime > cutoff:
                 continue
-            if _first_user_text(f).lstrip().startswith(MACHINERY_PROMPT_SENTINELS):
+            if is_machinery_transcript(f, root):
                 size = f.stat().st_size
                 f.unlink()
                 n += 1
