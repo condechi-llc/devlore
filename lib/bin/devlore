@@ -191,7 +191,7 @@ case "$cmd" in
         break
       fi
     done
-    PY add_codebase.py "${_add_args[@]}"
+    PY add_codebase.py "${_add_args[@]:+${_add_args[@]}}"
     ;;
   remove)
     _strip_kb "${@:2}"
@@ -207,7 +207,7 @@ case "$cmd" in
         break
       fi
     done
-    PY remove_codebase.py "${_rm_args[@]}"
+    PY remove_codebase.py "${_rm_args[@]:+${_rm_args[@]}}"
     ;;
   update)    PY update_kb.py "${@:2}" ;;
   obsidian)  PY obsidian_setup.py "${@:2}" ;;
