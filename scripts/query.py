@@ -288,7 +288,7 @@ def main() -> None:
 
     question = args.question.strip()
     if not question:
-        print("Error: empty question.")
+        print("Error: empty question.", file=sys.stderr)
         sys.exit(1)
 
     index_text = read_wiki_index()
@@ -319,30 +319,35 @@ def main() -> None:
             break
         except asyncio.TimeoutError:
             if attempt != attempts[-1]:
-                print(f"TIMEOUT after {timeout}s — retrying once", flush=True)
+                print(f"TIMEOUT after {timeout}s — retrying once", file=sys.stderr, flush=True)
                 logging.warning("query timeout after %ss (attempt %d) — retrying", timeout, attempt)
                 continue
-            print(f"TIMEOUT after {timeout}s — giving up", flush=True)
+            print(f"TIMEOUT after {timeout}s — giving up", file=sys.stderr, flush=True)
             logging.error("query timed out after %ss, gave up: %r", timeout, question)
             emit("query", "error", f"query timed out: {question[:80]}", "warn")
             sys.exit(1)
         except Exception as e:  # noqa: BLE001 — surface any SDK/tool failure to the user
             import traceback
             if attempt != attempts[-1]:
-                print(f"Error ({e}) — retrying once", flush=True)
+                print(f"Error ({e}) — retrying once", file=sys.stderr, flush=True)
                 logging.warning("query error (attempt %d), retrying: %s", attempt, e)
                 continue
-            print(f"Error: {e}", flush=True)
+            print(f"Error: {e}", file=sys.stderr, flush=True)
             logging.error("query failed: %r\n%s", question, traceback.format_exc())
             emit("query", "error", f"query failed: {question[:80]}", "error")
             sys.exit(1)
 
     if not answer:
-        print("No answer was produced.")
+        print("No answer was produced.", file=sys.stderr)
         logging.warning("query produced empty answer: %r", question)
         emit("query", "error", f"empty answer: {question[:80]}", "warn")
         sys.exit(1)
 
+    # stdout carries the ANSWER and nothing else. Every failure path above writes to
+    # stderr and exits non-zero, so a consumer can tell an answer from a failure
+    # without parsing prose. It could not before: query.py printed its errors to
+    # stdout, and the steward's oracle returned "Error: empty question." to another
+    # agent as if it were knowledge (condechi-llc/condechi-steward#7).
     print(answer)
 
     # State: bump query_count + cumulative cost (same ledger compile.py writes to).
