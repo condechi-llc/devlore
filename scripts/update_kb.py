@@ -75,6 +75,31 @@ def _rewrite(text: str, src: Path, kb: Path) -> str:
                 .replace(str(src), str(kb)))
 
 
+def _rewire_own_codex_hooks(kb: Path) -> None:
+    """Keep the KB's OWN .codex/hooks.json current.
+
+    Claude Code needs nothing here: the KB's .claude/settings.json is
+    re-materialized from the dist on every update. Codex has no equivalent, and
+    _rewire_capture_hooks — the only code that ever rewrites a hook command —
+    skips everything inside the KB, so this file was unreachable and stayed on the
+    pre-v0.9.25 `uv run --directory` form, which rebuilds the per-KB venv that
+    v0.9.27 removed.
+
+    This must NOT be folded into the capture-roots loop: a KB only appears in its
+    own capture-roots if the user opted its root in, which four of five did not.
+    Making the repair conditional on that is how the first attempt at this fix
+    silently did nothing for them.
+    """
+    try:
+        import sys
+        sys.path.insert(0, str(kb / "scripts"))
+        from init_kb import merge_codex_hooks
+        note = merge_codex_hooks(kb, kb, dry=False)
+        print(f"  ✓ this KB's own Codex capture hooks: {note}")
+    except Exception as e:
+        print(f"  ⚠ could not wire this KB's own Codex hooks: {e}")
+
+
 def _rewire_capture_hooks(kb: Path) -> None:
     """Re-register capture hooks in every EXTERNAL captured project's agent config.
 
@@ -101,24 +126,7 @@ def _rewire_capture_hooks(kb: Path) -> None:
             continue
         d = Path(line.rstrip("/"))
         if d == kb or str(d).startswith(str(kb) + "/"):
-            # Claude Code IS covered: the KB's own .claude/settings.json is
-            # re-materialized from the dist on every update. Codex is not — nothing
-            # writes the KB's own .codex/hooks.json, and this sweep is the only thing
-            # that ever rewrites a hook command. Skipping the KB wholesale therefore
-            # stranded its Codex hooks on the pre-v0.9.25 `uv run --directory` form,
-            # which silently rebuilds the per-KB venv v0.9.27 removed (~230 MB) the
-            # next time a Codex session opens in the KB. merge_codex_hooks is
-            # merge-aware and creates the file when absent, so covering the Codex
-            # half here both repairs KBs that predate this and wires the ones created
-            # after it, with no separate migration.
-            if kb not in seen:
-                seen.add(kb)
-                try:
-                    note = merge_codex_hooks(kb, kb, dry=False)
-                    print(f"  ✓ rewired this KB's own Codex hooks: {note}")
-                except Exception as e:
-                    print(f"  ⚠ could not rewire this KB's Codex hooks: {e}")
-            continue
+            continue  # handled above, unconditionally — see _rewire_own_codex_hooks
         if not d.is_dir():
             continue
         # Content-only roots (`devlore add --no-hooks`, `devlore snapshot`) are
@@ -555,6 +563,7 @@ def main() -> None:
 
     # Re-wire capture hooks into external captured projects so new hook events
     # (e.g. the Stop bootstrap hook) reach existing installs, not just new opt-ins.
+    _rewire_own_codex_hooks(kb)
     _rewire_capture_hooks(kb)
 
     # Self-heal: code-root symlinks are machine-specific and belong in the LOCAL,
