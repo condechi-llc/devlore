@@ -120,7 +120,7 @@ def backfill(codebase: Path, assume_yes: bool) -> None:
 
 
 def ingest_docs(codebase: Path, assume_yes: bool, full_recursive: bool = False,
-                ignore_gitignore: bool = False) -> bool:
+                ignore_gitignore: bool = False, no_compile: bool = False) -> bool:
     """Offer the repo's human-written markdown docs.
 
     Candidates come from `git ls-files` (tracked + untracked-but-not-ignored)
@@ -158,6 +158,15 @@ def ingest_docs(codebase: Path, assume_yes: bool, full_recursive: bool = False,
         return False
     subprocess.run([sys.executable, str(SCRIPTS / "ingest_doc.py"),
                     *[str(p) for p in candidates]], cwd=str(KB))
+    if no_compile:
+        # `devlore snapshot` defers this so every directory's docs compile in ONE
+        # pass at the end and can cite across each other — which is the whole point
+        # of snapshotting them together. Only the DOC compile is deferrable: the
+        # per-conversation compile inside backfill is load-bearing for the safety
+        # gate (regression check + fabrication check + quarantine all run on its
+        # output), so it cannot move.
+        print("\n· compile deferred to the end of the snapshot (--no-compile)")
+        return True
     print("\nCompiling into wiki articles (this is the LLM step — it can take a few minutes)…")
     subprocess.run([sys.executable, str(SCRIPTS / "compile.py")], cwd=str(KB))
     return True
@@ -232,6 +241,11 @@ def main() -> None:
                     help="Also offer GITIGNORED markdown docs (research notes, drafts "
                          "kept out of the remote on purpose). The deny-list, depth and "
                          "tripwire filters still apply — review the preview.")
+    ap.add_argument("--no-compile", action="store_true",
+                    help="Ingest docs but do not compile them yet. `devlore snapshot` "
+                         "uses this so every directory's docs compile together at the "
+                         "end. The per-conversation compile inside backfill is NOT "
+                         "affected — it gates quarantine and cannot be deferred.")
     ap.add_argument("--compile-pending", action="store_true",
                     help="After wiring/backfill/docs, compile ALL pending daily logs into "
                          "wiki articles now (incremental — skips already-compiled dailies), "
@@ -274,7 +288,8 @@ def main() -> None:
     if not args.no_backfill:
         backfill(codebase, args.yes)
     if not args.no_docs:
-        ingest_docs(codebase, args.yes, args.full_recursive, args.ignore_gitignore)
+        ingest_docs(codebase, args.yes, args.full_recursive,
+                    ignore_gitignore=args.ignore_gitignore, no_compile=args.no_compile)
     if args.compile_pending:
         compile_pending()
     briefing(before)

@@ -119,8 +119,14 @@ def main() -> None:
         # attach to. Report honestly rather than emitting a misleading per-directory
         # estimate against a KB that does not exist.
         print("\nDry run: the KB was not created, so per-directory backfill estimates")
-        print("were not computed. Re-run with --yes to build it; each directory's")
-        print("backfill still reports its own cost estimate and asks before spending.")
+        print("were not computed.")
+        print("\n--yes is UNATTENDED: it builds the KB and then ingests every")
+        print("directory's conversations and markdown without stopping to ask. Each")
+        print("one prints its own cost estimate as it goes, but nothing waits for")
+        print("confirmation — the only way to stop it is to interrupt a running")
+        print("compile. To see what a directory would cost before committing to the")
+        print("whole run, add it on its own:")
+        print("    devlore add <dir> --no-hooks          # prompts before spending")
         return
 
     # 2. Attach each directory: symlink, capture-roots, code-roots — then historical
@@ -133,15 +139,25 @@ def main() -> None:
         # announce a route to the owning KB and hand off, which is pointless when
         # we can simply run the owner's script. Post-init the new KB has a complete
         # scripts/ tree, so it operates on itself and no routing occurs.
-        add = [str(kb / "scripts" / "add_codebase.py"), str(c), "--no-hooks", "--yes"]
+        # --no-compile defers each directory's DOC compile so they all run in the
+        # single pass below and can cite across each other. The per-conversation
+        # compile inside backfill is NOT deferred and cannot be: the regression
+        # check, the fabrication gate and quarantine all run on its output, so
+        # moving it would disable the safety gate. Conversations therefore still
+        # compile in ingest order, and the first directory still sees the smallest
+        # wiki — that asymmetry is inherent, not something the final pass fixes.
+        add = [str(kb / "scripts" / "add_codebase.py"), str(c),
+               "--no-hooks", "--yes", "--no-compile"]
         if args.full_recursive:
             add.append("--full-recursive")
         if (rc := _run(add, kb)) != 0:
             sys.exit(f"error: adding {c} failed (exit {rc}) — "
                      f"the KB at {kb} keeps whatever completed before this point")
 
-    # 3. One compile at the end rather than per directory: articles can then cite
-    #    across all of them, which is the entire reason for snapshotting them together.
+    # 3. One compile at the end for every directory's DOCS, so articles drawn from
+    #    them can cite across all of them — the reason for snapshotting together.
+    #    Until --no-compile existed this pass always found nothing to do, because
+    #    each add had already compiled its own.
     print(f"\n{'=' * 60}\nCompiling\n{'=' * 60}")
     if (rc := _run([str(kb / "scripts" / "compile.py")], kb)) != 0:
         sys.exit(f"error: compile failed (exit {rc}) — daily logs are intact; "

@@ -24,15 +24,43 @@ depth, size and tripwire gates still apply.
 
 from __future__ import annotations
 
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DAILY_DIR = ROOT / "daily"
+SCRIPTS = ROOT / "scripts"
 
 
-def append_to_daily(content: str, section: str) -> Path:
+def source_project(path: Path) -> str:
+    """Which registered codebase does this file belong to? ("" when none does.)
+
+    A single daily receives markdown from every codebase a snapshot touches, so
+    the compiler cannot tell them apart from the file alone — that is how one
+    repo's slug came to claim 97 of 98 articles. Longest matching code-root wins,
+    so a repo nested inside another is attributed to the nearer one.
+    """
+    try:
+        names = [n.strip() for n in (SCRIPTS / "code-roots").read_text(encoding="utf-8").splitlines()
+                 if n.strip() and not n.strip().startswith("#")]
+    except OSError:
+        return ""
+    target = os.path.realpath(path)
+    best, best_len = "", -1
+    for name in names:
+        root = ROOT / name
+        try:
+            r = os.path.realpath(root)
+        except OSError:
+            continue
+        if (target == r or target.startswith(r + os.sep)) and len(r) > best_len:
+            best, best_len = name, len(r)
+    return best
+
+
+def append_to_daily(content: str, section: str, project: str = "") -> Path:
     """Append a section to today's daily log (same format as flush.py)."""
     today = datetime.now(timezone.utc).astimezone()
     log_path = DAILY_DIR / f"{today.strftime('%Y-%m-%d')}.md"
@@ -42,7 +70,11 @@ def append_to_daily(content: str, section: str) -> Path:
             f"# Daily Log: {today.strftime('%Y-%m-%d')}\n\n## Sessions\n\n## Memory Maintenance\n\n",
             encoding="utf-8",
         )
-    entry = f"### {section} ({today.strftime('%H:%M')})\n\n{content}\n\n"
+    # Same body-tag convention flush.py uses: the source project goes in the
+    # entry BODY, never the header, because compile splits on the header and
+    # flush hashes it. compile reads this tag as authoritative for `project:`.
+    tag = f"**Project:** {project}\n\n" if project else ""
+    entry = f"### {section} ({today.strftime('%H:%M')})\n\n{tag}{content}\n\n"
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(entry)
     return log_path
@@ -91,7 +123,7 @@ def main() -> None:
         if not content:
             print(f"SKIP (empty): {p.name}")
             continue
-        log_path = append_to_daily(content, f"Doc Ingest: {p.name}")
+        log_path = append_to_daily(content, f"Doc Ingest: {p.name}", source_project(p))
         ingested.append(p.name)
         print(f"Ingested {p.name} ({len(content)} chars) -> daily/{log_path.name}")
         from activity import emit

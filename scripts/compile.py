@@ -258,10 +258,16 @@ Read the daily log above and compile it into wiki articles following the schema 
      ALL frontmatter fields in the "Frontmatter fields" table: `type`, `status`,
      `subsystem`, `summary`, and (when applicable) `milestone`, in addition to the basics.
    - Include `project:` in frontmatter — the app/platform this concept belongs to.
-     Infer it from the content; REUSE the slug an existing related article already
-     uses (the index above is sectioned by project — Read a related article to copy
-     its exact `project:` value) so one project's knowledge stays under one slug.
-     Only introduce a new slug for a genuinely different app/platform.
+     **If the entry this article comes from carries a `**Project:**` line, that value
+     IS the project. Use it verbatim. Do not infer, and do not copy a related
+     article's slug instead** — a daily log holds entries from several codebases at
+     once, so a neighbouring article is no evidence of where THIS one came from.
+     When an article draws on entries with different `**Project:**` values, use the
+     one whose entries contribute most of its substance.
+     Only when NO entry carries the tag: infer from the content, reusing an existing
+     slug (the index above is sectioned by project — Read a related article to copy
+     its exact value), and introduce a new slug only for a genuinely different
+     app/platform.
    - Set `subsystem:` to the architecture area — REUSE an existing subsystem slug (the
      index's subsections above ARE the existing subsystems; Read a related article to
      copy its exact `subsystem:` value); only add a new one for a genuinely new area

@@ -402,8 +402,12 @@ def append_backfill_entry(conv: dict, body: str) -> Path:
             f"# Daily Log: {conv['date']}\n\n## Sessions\n\n## Memory Maintenance\n\n",
             encoding="utf-8")
     span = f"{conv['date']}→{conv['last_iso'][:10]}" if conv["last_iso"][:10] != conv["date"] else conv["date"]
+    # The project also goes in the BODY, matching flush.py: compile reads this tag
+    # as authoritative for `project:`. It is in the header too, but the header is a
+    # human label that compile splits on — parsing it would couple the compiler to
+    # a display string.
     entry = (f"### Session (backfill {conv['sid'][:8]} · {span} · "
-             f"{conv['project']})\n\n{body}\n\n")
+             f"{conv['project']})\n\n**Project:** {conv['project']}\n\n{body}\n\n")
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(entry)
     return log_path
