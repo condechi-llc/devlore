@@ -63,6 +63,7 @@ Answers come back **cited** — every claim links to the articles (and the daily
   - **Tier 3 — adversarial review** (opt-in): a refute-by-default agent attacks surviving claims with file:line evidence.
   - **Tier 4 — honesty about limits**: claims resting on law, policy, or external-API behavior are tagged as never auto-trustable.
 - 💸 **Cost transparency** — anything that spends money shows a plan + estimate first and waits for your yes. Batch backfills run behind regression checks and auto-quarantine with full rollback.
+- 🔐 **Credentials are redacted before they are captured** — every conversation and every ingested document passes a deterministic secret scan on the way in (API keys, `gh*_` / `xox*` / `AKIA` tokens, bearer headers, PEM private keys, `SECRET=`-style assignments). Matches become a visible `[REDACTED:<kind>]` marker *before* anything is written to a daily log, so the value never reaches the wiki, the compiler, or a log line.
 - 🗃️ **Git-versioned by design** — the KB auto-commits after every pipeline write. Your knowledge history is one `git log` away. Local-only; nothing ever leaves your machine.
 - 🔌 **Obsidian as an optional superpower** — open the KB directory as a vault and get graph view, clickable wikilinks, Dataview-queryable frontmatter, clickable architecture diagrams, and a side-panel plugin that drives ingest / compile / ask / verify / status from the ribbon and command palette. Didn't opt in at install? `devlore obsidian` adds it anytime. (One-time: Obsidian disables third-party plugins until you trust the vault and toggle devlore on under Settings → Community plugins — `devlore obsidian` prints the exact steps.) But the whole system runs headless; Obsidian is a skin, never a dependency.
 
@@ -118,6 +119,13 @@ the wiki is plain markdown readable anywhere. Obsidian just makes it gorgeous.
 **Why not RAG?** At 50–500 articles, an LLM reading a human-grade index outperforms
 embedding similarity — it understands what your question *means*. The catalog is the
 retrieval system.
+
+**I pasted a token into a session — is it in my knowledge base now?** No. Capture runs a
+deterministic secret scan before writing anything: API keys, `gh*_` / `xox*` / `AKIA`
+tokens, bearer headers, PEM private keys and `SECRET=`-style assignments are replaced with
+a visible `[REDACTED:<kind>]` marker, so neither `daily/` nor the compiler ever sees the
+value. It is pattern-based, so treat it as a backstop rather than a licence to paste
+secrets — a credential that matches no known shape can still get through.
 
 **Can it be wrong?** Yes — that's why half this project is the verification ladder. An
 unverified LLM knowledge base is a hallucination amplifier; devlore treats incorrect
