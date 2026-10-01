@@ -496,7 +496,7 @@ def main() -> None:
     from llm_silence import is_silenced
     if args.tier3 and is_silenced():
         # Tier-1/2 are deterministic and still ran; only the LLM tier is skipped.
-        print("Tier-3 skipped — LLM silence is ON (`devlore --llm-resume` to lift).",
+        print("Tier-3 skipped — LLM silence is ON.",
               file=sys.stderr, flush=True)
     elif args.tier3 and tier1_flags:
         print(f"\nTier-3 adversarial pass on {sum(len(r['true_misses']) for r in tier1_flags)} "

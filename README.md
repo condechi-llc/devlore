@@ -100,9 +100,9 @@ Source-code analogy (h/t Karpathy): the daily logs are *source code*, the compil
 | `devlore docs <path>` | Ingest markdown docs, then compile (a dir scans root + first-level subdirs, git-aware + vendor-filtered; `--full-recursive` for the whole tree, `--ignore-gitignore` to include gitignored docs — compiling costs real money, review the preview) |
 | `devlore status` | What the KB holds: articles, dailies, captured sessions, capture roots, spend |
 | `devlore update` | Refresh the KB's machinery from the latest release (your knowledge is never touched) |
-| `devlore --llm-silence` | Stop **all** LLM processing in every KB on the machine — no flush summaries, no compiles, no `ask`/`backfill`. Capture keeps collecting: session deltas are stored raw in `spool/` |
-| `devlore --llm-resume` | Let the LLM run again. Spends nothing by itself |
-| `devlore --llm-status` | Whether the LLM is silenced, since when, and what each KB has spooled |
+| `devlore --llm-silence` | Stop **all** LLM processing in every KB on the machine — no flush summaries, no compiles, no `ask`/`backfill`. Capture keeps collecting: session deltas are stored raw in `spool/`. Run from a terminal it also locks the silence behind `sudo` |
+| `devlore --llm-resume` | Let the LLM run again. Human-only: needs a real terminal, a typed confirmation code and your `sudo` password, so no script or agent can lift a silence. Spends nothing by itself |
+| `devlore --llm-status` | Whether the LLM is silenced, since when, locked or not, what each KB has spooled, and recent changes and refused attempts |
 | `devlore drain` | After resuming: summarise the spooled captures into the daily logs of the days they were captured (plan first, `--yes` to run) |
 | `devlore obsidian` | Add/refresh the optional Obsidian layer (side-panel plugin + vault config) in this KB — use it if you skipped Obsidian at install; prints the one-time activation steps |
 | `devlore version` | Print the installed devlore version |
@@ -117,7 +117,8 @@ account doing the compilation. The KB git repo has no remote unless you add one.
 Compilation is the LLM step — typically $1–6 per working day of conversation, and every
 batch operation shows you the bill before running. You control the throttle — and
 `devlore --llm-silence` is the off switch: it stops every LLM call at once while your
-sessions keep being collected, to be summarised once you `--llm-resume`.
+sessions keep being collected, to be summarised once you `--llm-resume` — which only
+a person at a terminal with the `sudo` password can do.
 
 **I don't use Obsidian.** Neither does the machinery. Everything works from the terminal;
 the wiki is plain markdown readable anywhere. Obsidian just makes it gorgeous.

@@ -136,12 +136,12 @@ case "$cmd" in
     echo "devlore v$(cat "$DEVLORE_LIB/VERSION" 2>/dev/null || echo dev)  (home: $DEVLORE_HOME)"
     exit 0
     ;;
-  # Machine-wide LLM kill switch: one flag file under the devlore home, read by
-  # every LLM call site in every KB (lib/llm_silence.py). No KB context — it must
-  # work from anywhere, including before any KB resolves.
+  # Machine-wide LLM kill switch, read by every LLM call site in every KB
+  # (lib/llm_silence.py). No KB context — it must work from anywhere, including
+  # before any KB resolves. Never run this launcher under sudo: the module asks
+  # sudo itself, for fixed system commands only, so no devlore code runs as root.
   --llm-silence|--llm-resume|--llm-status)
-    DEVLORE_HOME="$DEVLORE_HOME" PYTHONPATH="$DEVLORE_LIB:${PYTHONPATH:-}" \
-      "$DEVLORE_PY" "$DEVLORE_LIB/llm_silence.py" "${cmd#--llm-}" "${@:2}"
+    "$DEVLORE_PY" "$DEVLORE_LIB/llm_silence.py" "${cmd#--llm-}" "${@:2}"
     exit $?
     ;;
 esac
@@ -254,9 +254,9 @@ case "$cmd" in
     q=$(ls "$KB"/quarantine/*.md 2>/dev/null | wc -l | tr -d ' ')
     [ "$q" -gt 0 ] && echo "  quarantine:   $q conversation(s) awaiting review"
     sp=$(ls "$KB"/spool/*.json 2>/dev/null | wc -l | tr -d ' ')
-    if [ -e "$DEVLORE_HOME/llm-silence" ]; then
+    if "$DEVLORE_PY" "$DEVLORE_LIB/llm_silence.py" is-on; then
       echo "  LLM silence:  ON — nothing is summarised or compiled; captures are spooled raw"
-      echo "                ($sp spooled here; resume with: devlore --llm-resume)"
+      echo "                ($sp spooled here; details: devlore --llm-status)"
     elif [ "$sp" -gt 0 ]; then
       echo "  spool:        $sp capture(s) from an LLM silence, not yet summarised (devlore drain)"
     fi
@@ -340,10 +340,16 @@ Stopping the LLM
                               each session delta is stored raw (credentials
                               redacted) in <kb>/spool/ instead of summarised.
                               A compile or backfill already running stops at
-                              its next part boundary.
-  devlore --llm-resume        let the LLM run again (spends nothing by itself)
-  devlore --llm-status        silenced or not, since when, and what each KB has
-                              spooled
+                              its next part boundary. Takes effect at once;
+                              run from a terminal it then LOCKS the silence
+                              (asks for your sudo password) so that no script
+                              or agent can lift it.
+  devlore --llm-resume        let the LLM run again. Only a person can: it
+                              needs a real terminal, a typed confirmation code
+                              and your sudo password. Spends nothing by itself.
+  devlore --llm-status        silenced or not, since when, locked or not, what
+                              each KB has spooled, and the recent changes and
+                              refused attempts
   devlore drain               after resuming: summarise the active KB's spooled
                               captures into the daily logs of the days they
                               were captured (shows the plan first; --yes to

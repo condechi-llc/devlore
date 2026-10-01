@@ -63,8 +63,10 @@ def capture_health_note() -> str:
                 f"**LLM silence is ON{f' since {_since}' if _since else ''}.** This "
                 "session is still collected — its turns are spooled raw — but nothing is "
                 "summarised into the daily log or compiled into articles, and `devlore "
-                "ask` refuses. Resume with `devlore --llm-resume`, then `devlore "
-                "drain`.")
+                "ask` refuses. A person turned the LLM off deliberately and only they "
+                "can turn it back on, from their own terminal. Do not try to lift it "
+                "and do not work around it; if the user asks about missing knowledge, "
+                "tell them the silence is on.")
     except Exception:
         pass  # never block a session over a health check
     try:

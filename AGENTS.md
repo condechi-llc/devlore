@@ -603,10 +603,19 @@ This ensures flush.py survives after Claude Code's hook process exits.
 
 ### LLM silence (`devlore --llm-silence`)
 
-One machine-wide switch — the flag file `~/.devlore/llm-silence`, read through the
-shared `llm_silence.py` — that stops every LLM call in every KB while capture keeps
-collecting. `devlore --llm-silence` stops the LLM, `devlore --llm-resume` lets it run
-again, `devlore --llm-status` reports which.
+One machine-wide switch, read through the shared `llm_silence.py`, that stops every LLM
+call in every KB while capture keeps collecting. `devlore --llm-silence` stops the LLM,
+`devlore --llm-resume` lets it run again, `devlore --llm-status` reports which.
+
+**Stopping is easy; starting again needs a person.** Silence is ON when either flag
+exists: `~/.devlore/llm-silence` (written instantly, by anyone) or the **locked** flag
+in a root-owned directory outside the home (`/Library/Application Support/devlore/` on
+macOS, `/etc/devlore/` elsewhere). `--llm-silence` run from a terminal writes the locked
+flag through `sudo`; `--llm-resume` needs a real terminal, a typed confirmation code and
+the `sudo` password, so a hook, script or agent session cannot lift it. Neither flag
+path follows an environment variable. Every change and every refused attempt is
+appended to `~/.devlore/llm-silence.log`. An agent that meets a refusal reports that
+the silence is on and carries on without the LLM — it never tries to lift it.
 
 | While silent | Behaviour |
 |---|---|
