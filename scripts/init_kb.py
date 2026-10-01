@@ -51,6 +51,7 @@ PAYLOAD_SHARED = [
     "config.py", "utils.py", "kb_resolve.py", "kb_registry.py",
     "capture_config.py", "transcripts.py", "activity.py",
     "kb_commit.py", "staleness.py", "stamp_baseline.py",
+    "llm_silence.py",
 ]
 PAYLOAD_LOCAL = [
     "add_codebase.py", "build_index.py", "capture-config",
@@ -302,7 +303,7 @@ def _install_shared_lib(source_root: Path, source_version: str, dry: bool = Fals
 
 # The KB's own structure — a codebase symlink must never shadow these.
 RESERVED_NAMES = {"knowledge", "daily", "scripts", "hooks", "quarantine", "reports",
-                  ".claude", ".obsidian", ".git", ".venv"}
+                  "spool", ".claude", ".obsidian", ".git", ".venv"}
 
 
 def link_name(kb: Path, codebase: Path) -> str:

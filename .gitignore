@@ -42,6 +42,10 @@ scripts/__pycache__/
 .obsidian/plugins/*
 !.obsidian/plugins/devlore/
 
+# LLM-silence spool: RAW session deltas waiting for `devlore drain`. Never
+# committed — the daily log entry a drain produces is the auditable record.
+spool/
+
 # Batch-ingest snapshots (tars); the quarantine *.md reviews ARE tracked
 quarantine/.snapshots/
 

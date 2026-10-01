@@ -265,6 +265,8 @@ def check_tags() -> list[dict]:
 
 async def check_contradictions() -> list[dict]:
     """Use LLM to detect contradictions across articles."""
+    from llm_silence import require_llm
+    require_llm("lint contradictions")
     from claude_agent_sdk import (
         AssistantMessage,
         ClaudeAgentOptions,
@@ -396,7 +398,10 @@ def main():
         print(f"    Found {len(issues)} issue(s)")
 
     # LLM check (costs money)
-    if not args.structural_only:
+    from llm_silence import is_silenced
+    if not args.structural_only and is_silenced():
+        print("  Skipping: Contradictions (LLM silence is ON)")
+    elif not args.structural_only:
         print("  Checking: Contradictions (LLM)...")
         issues = asyncio.run(check_contradictions())
         all_issues.extend(issues)

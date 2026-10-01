@@ -53,6 +53,21 @@ def capture_health_note() -> str:
     try:
         sys.path.insert(0, str(Path.home() / ".devlore" / "lib"))
         sys.path.insert(0, str(ROOT / "scripts"))
+        # LLM silence is deliberate, but it is also the easiest state to forget:
+        # nothing fails, knowledge simply stops arriving. Say so every session.
+        from llm_silence import state as _silence_state
+        _silence = _silence_state()
+        if _silence is not None:
+            _since = _silence.get("since", "")
+            notes.append(
+                f"**LLM silence is ON{f' since {_since}' if _since else ''}.** This "
+                "session is still collected — its turns are spooled raw — but nothing is "
+                "summarised into the daily log or compiled into articles, and `devlore "
+                "ask` refuses. Resume with `devlore --llm-resume`, then `devlore "
+                "drain`.")
+    except Exception:
+        pass  # never block a session over a health check
+    try:
         from config import system_cli_path
         cli = system_cli_path()
         if cli:

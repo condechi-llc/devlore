@@ -332,6 +332,8 @@ VERDICT: <CONFIRMED|UNVERIFIED|REFUTED> — <file:line, or one-line reason>"""
 
 
 async def _run_tier3(prompt: str, model: str) -> str:
+    from llm_silence import require_llm
+    require_llm("verify tier-3")
     from claude_agent_sdk import (
         AssistantMessage,
         ClaudeAgentOptions,
@@ -491,7 +493,12 @@ def main() -> None:
 
     # ── Tier-3 (opt-in) ──
     verdicts: dict[str, dict] | None = None
-    if args.tier3 and tier1_flags:
+    from llm_silence import is_silenced
+    if args.tier3 and is_silenced():
+        # Tier-1/2 are deterministic and still ran; only the LLM tier is skipped.
+        print("Tier-3 skipped — LLM silence is ON (`devlore --llm-resume` to lift).",
+              file=sys.stderr, flush=True)
+    elif args.tier3 and tier1_flags:
         print(f"\nTier-3 adversarial pass on {sum(len(r['true_misses']) for r in tier1_flags)} "
               f"true-miss token(s) via {args.model}…", file=sys.stderr, flush=True)
         verdicts = run_tier3(tier1_flags, args.model)

@@ -215,6 +215,14 @@ def main():
         sys.stdout.write(f"{DIM}🧠 untracked{RESET}{g}")
         return
 
+    # LLM silence (`devlore --llm-silence`): turns are spooled, never "saved", so
+    # the since-save counter would climb red over a state that is deliberate.
+    # Checked as a bare file test to keep this script stdlib-only and fast.
+    _home = Path(os.environ.get("DEVLORE_HOME") or Path.home() / ".devlore")
+    if (_home / "llm-silence").exists():
+        sys.stdout.write(f"{DIM}🧠 silenced{RESET}{g}")
+        return
+
     session_id = data.get("session_id", "")
     transcript_path = data.get("transcript_path", "")
 

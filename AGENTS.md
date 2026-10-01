@@ -461,6 +461,7 @@ llm-personal-kb/
 |-- README.md                        # Concise overview + quick start
 |-- pyproject.toml                   # Dependencies (at root so hooks can find it)
 |-- daily/                           # "Source code" - conversation logs (immutable)
+|-- spool/                           # Raw session deltas held during LLM silence (gitignored)
 |-- knowledge/                       # "Executable" - compiled knowledge (LLM-owned)
 |   |-- index.md                     #   Master catalog - THE retrieval mechanism
 |   |-- log.md                       #   Append-only build log
@@ -596,7 +597,28 @@ This ensures flush.py survives after Claude Code's hook process exits.
 5. Claude decides what's worth saving - returns structured bullet points or `FLUSH_OK`
 6. Appends result to `daily/YYYY-MM-DD.md`
 7. Cleans up temp context file
+   - **During LLM silence** (see below) steps 4–6 are replaced: the raw delta is
+     written to `spool/` and the session marker advances; step 8 does not run.
 8. **End-of-day auto-compilation:** If it's past 6 PM local time (`COMPILE_AFTER_HOUR = 18`) and today's daily log has changed since its last compilation (hash comparison against `state.json`), spawns `compile.py` as another detached background process. This means compilation happens automatically once a day without needing a cron job or manual trigger.
+
+### LLM silence (`devlore --llm-silence`)
+
+One machine-wide switch — the flag file `~/.devlore/llm-silence`, read through the
+shared `llm_silence.py` — that stops every LLM call in every KB while capture keeps
+collecting. `devlore --llm-silence` stops the LLM, `devlore --llm-resume` lets it run
+again, `devlore --llm-status` reports which.
+
+| While silent | Behaviour |
+|---|---|
+| Capture hooks → `flush.py` | No summary. The raw delta (credentials redacted) is stored as one JSON file in `<kb>/spool/` (gitignored), the session marker advances, no compile is spawned. |
+| `compile`, `ask`, `backfill --yes`, `drain --yes` | Refuse on stderr with exit code 75; stdout stays empty. Dry runs and plans still print. |
+| `verify`, `lint` | Deterministic checks run; only Tier-3 / contradictions are skipped. |
+| A compile or backfill already running | Stops at its next part / conversation boundary; what remains stays pending. |
+
+After `--llm-resume`, `devlore drain` shows the spooled captures (plan first, `--yes` to run) and
+summarises each into the daily log of the day it was **captured**; `devlore compile`
+takes it from there. Every new LLM call site must ask `llm_silence` first
+(`exit_if_silenced` at a command entry, `require_llm` before the SDK import).
 
 ### JSONL Transcript Format
 

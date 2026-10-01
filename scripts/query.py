@@ -223,6 +223,8 @@ async def run_query(prompt: str, file_back: bool) -> tuple[str, float]:
     Read-only by default (Read/Glob/Grep). `--file-back` also grants Write/Edit so
     the agent can file the Q&A article and update the index + log. The answer is the
     text of the LAST assistant message that carried text (the final synthesis turn)."""
+    from llm_silence import require_llm
+    require_llm("ask")
     from claude_agent_sdk import (
         AssistantMessage,
         ClaudeAgentOptions,
@@ -290,6 +292,11 @@ def main() -> None:
     if not question:
         print("Error: empty question.", file=sys.stderr)
         sys.exit(1)
+
+    # LLM silence (`devlore --llm-silence`): stderr + a distinct exit code, so a
+    # consumer never mistakes the refusal for an answer (stdout stays empty).
+    from llm_silence import exit_if_silenced
+    exit_if_silenced("ask")
 
     index_text = read_wiki_index()
     if args.project:

@@ -192,7 +192,16 @@ async def compile_daily_log(log_path: Path, state: dict, *, file_index: int = 1,
     total_cost = 0.0
     had_error = False
 
+    from llm_silence import is_silenced
     for ci, chunk in enumerate(chunks, 1):
+        # Silence turned on while this compile was running: stop at the part
+        # boundary rather than mid-write. The remaining entries stay pending and
+        # compile normally once silence is lifted.
+        if is_silenced():
+            print(f"  LLM silence is ON — stopping before part {ci}/{len(chunks)}; "
+                  f"its entries stay pending", flush=True)
+            had_error = True
+            break
         chunk_text = "\n\n".join(chunk)  # chunk is a list of entries
         write_compile_status("running", total=file_total, index=file_index,
                              file=log_path.name, started_at=started_iso or now_iso(),
@@ -468,6 +477,12 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Show what would be compiled")
     args = parser.parse_args()
 
+    # LLM silence (`devlore --llm-silence`): refuse before taking the lock or
+    # touching state. A dry run makes no LLM call, so it still answers.
+    if not args.dry_run:
+        from llm_silence import exit_if_silenced
+        exit_if_silenced("compile")
+
     # Dry runs only read state, so they don't need the lock.
     lock_handle = None
     if not args.dry_run:
@@ -538,6 +553,13 @@ def main():
             write_compile_status(
                 "running", total=len(to_compile), index=i, file=log_path.name, started_at=started
             )
+            # Silence turned on mid-run: leave the remaining files pending, but
+            # fall through to the post-compile passes so what DID compile is
+            # indexed and committed.
+            from llm_silence import is_silenced
+            if is_silenced():
+                print(f"\nLLM silence is ON — {len(to_compile) - i + 1} file(s) left pending.")
+                break
             print(f"\n[{i}/{len(to_compile)}] Compiling {log_path.name}...")
             cost = asyncio.run(compile_daily_log(
                 log_path, state, file_index=i, file_total=len(to_compile), started_iso=started,

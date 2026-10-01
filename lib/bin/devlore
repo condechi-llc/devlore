@@ -136,6 +136,14 @@ case "$cmd" in
     echo "devlore v$(cat "$DEVLORE_LIB/VERSION" 2>/dev/null || echo dev)  (home: $DEVLORE_HOME)"
     exit 0
     ;;
+  # Machine-wide LLM kill switch: one flag file under the devlore home, read by
+  # every LLM call site in every KB (lib/llm_silence.py). No KB context — it must
+  # work from anywhere, including before any KB resolves.
+  --llm-silence|--llm-resume|--llm-status)
+    DEVLORE_HOME="$DEVLORE_HOME" PYTHONPATH="$DEVLORE_LIB:${PYTHONPATH:-}" \
+      "$DEVLORE_PY" "$DEVLORE_LIB/llm_silence.py" "${cmd#--llm-}" "${@:2}"
+    exit $?
+    ;;
 esac
 
 # Active KB resolution: every other subcommand runs in some KB's context.
@@ -221,6 +229,7 @@ case "$cmd" in
   backfill)   PY ingest_all_context.py "${@:2}" ;;
   docs)       PY ingest_doc.py "${@:2}" && PY compile.py ;;
   recheck)    PY recheck.py "${@:2}" ;;
+  drain)      _strip_kb "${@:2}"; PY flush.py --drain "${_out[@]:+${_out[@]}}" ;;
 
   # ── status walker: deterministic local view ──────────────────────────
   status)
@@ -244,6 +253,13 @@ case "$cmd" in
     echo "  sessions:     $mk conversation(s) captured"
     q=$(ls "$KB"/quarantine/*.md 2>/dev/null | wc -l | tr -d ' ')
     [ "$q" -gt 0 ] && echo "  quarantine:   $q conversation(s) awaiting review"
+    sp=$(ls "$KB"/spool/*.json 2>/dev/null | wc -l | tr -d ' ')
+    if [ -e "$DEVLORE_HOME/llm-silence" ]; then
+      echo "  LLM silence:  ON — nothing is summarised or compiled; captures are spooled raw"
+      echo "                ($sp spooled here; resume with: devlore --llm-resume)"
+    elif [ "$sp" -gt 0 ]; then
+      echo "  spool:        $sp capture(s) from an LLM silence, not yet summarised (devlore drain)"
+    fi
     echo "  capture roots (live conversation capture is on for):"
     grep -v '^\s*#\|^\s*$' "$KB/scripts/capture-roots" 2>/dev/null | sed 's/^/    /' \
       || echo "    (none — run: devlore add <codebase>)"
@@ -315,6 +331,23 @@ Trust & upkeep
   devlore update              refresh this KB's machinery from the latest
                               release — knowledge/, daily/, and your config are
                               never touched
+
+Stopping the LLM
+  devlore --llm-silence       stop ALL LLM processing, in every KB on this
+                              machine: no flush summaries, no automatic or
+                              manual compile, no ask / backfill / verify tier-3
+                              / lint contradictions. Capture keeps collecting —
+                              each session delta is stored raw (credentials
+                              redacted) in <kb>/spool/ instead of summarised.
+                              A compile or backfill already running stops at
+                              its next part boundary.
+  devlore --llm-resume        let the LLM run again (spends nothing by itself)
+  devlore --llm-status        silenced or not, since when, and what each KB has
+                              spooled
+  devlore drain               after resuming: summarise the active KB's spooled
+                              captures into the daily logs of the days they
+                              were captured (shows the plan first; --yes to
+                              run), ready for \`devlore compile\`
   devlore version             print the installed devlore version
 
 Obsidian (optional)

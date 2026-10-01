@@ -334,6 +334,8 @@ Rules:
 
 
 async def _distill_chunk(chunk: str, model: str) -> tuple[str, float]:
+    from llm_silence import require_llm
+    require_llm("backfill")
     from claude_agent_sdk import (
         AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, query,
     )
@@ -373,7 +375,10 @@ def distill(conv: dict) -> tuple[str, float, list[int]]:
                     _distill_chunk(chunk, conv["model"]), timeout))
                 break
             except Exception as e:  # noqa: BLE001 — includes TimeoutError + CLI flake
-                if attempt < 3:
+                from llm_silence import LLMSilenced
+                # Silence landed mid-conversation: retrying cannot succeed, so skip
+                # the backoff and let the chunk be noted as not captured.
+                if attempt < 3 and not isinstance(e, LLMSilenced):
                     print(f"      chunk {i} error ({e}) — retry {attempt}/2", flush=True)
                     _time.sleep(5 * attempt)
                     continue
@@ -601,6 +606,11 @@ def main() -> None:
     args = ap.parse_args()
     if args.force and not args.session:
         ap.error("--force requires --session <sid>")
+    # LLM silence (`devlore --llm-silence`): the plan below makes no LLM call and
+    # still prints; executing it does, so --yes is refused up front.
+    from llm_silence import exit_if_silenced, is_silenced
+    if args.yes:
+        exit_if_silenced("backfill")
 
     convs, warm = discover(args.min_size, args.haiku_max, args.session,
                            force=args.force, only_root=args.root)
@@ -648,6 +658,12 @@ def main() -> None:
 
     results = []
     for i, conv in enumerate(convs, 1):
+        # Silence turned on mid-run: stop at the conversation boundary. The rest
+        # have no marker yet, so the next backfill picks them up unchanged.
+        if is_silenced():
+            print(f"\nLLM silence is ON — stopping before conversation {i}/{len(convs)}.",
+                  flush=True)
+            break
         print(f"\n[{i}/{len(convs)}] {conv['sid'][:8]} ({conv['date']}, {conv['model']}, "
               f"{conv['chunks']} chunk(s))", flush=True)
         results.append(process(conv, baseline_fab))
